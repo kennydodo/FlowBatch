@@ -107,6 +107,12 @@ These were established by probing the live signed-in UI. Do not "fix" them from 
 - The landing page redirects into the last project only after ~15s. Prefer `projectUrl`.
 - Google throttles automated runs with *"We noticed some unusual activity"* inside the tile. It is
   detected and treated as non-retryable so the batch stops instead of making it worse.
+- **The same "unusual activity" message also means the prompt is too long.** Measured boundary: 2427
+  characters accepted, 2510 refused three times with identical references in the same sessions. The
+  ceiling is ~2450 characters for the **combined** prompt (job-wide `style` + item `prompt`), and it
+  is server-side — the prompt box accepts 5000+ without truncating. `generation.maxPromptChars`
+  (default 2420) drives a load-time warning. Do not diagnose a refusal as throttling without first
+  checking the prompt length; and note a refusal currently aborts the whole batch.
 
 ## Job schema
 

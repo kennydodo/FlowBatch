@@ -431,6 +431,68 @@ Mitigations, in order of effect:
 3. Keep batches small and avoid repeated back-to-back runs.
 4. Use `--limit` to run a few items at a time.
 
+Observed recovery: about **4 hours** after the first episode, and about **2h40m** after a later one.
+It appears to scale with how hard the account was pushed, so tripping it less often means shorter
+waits.
+
+> Before assuming throttling, rule out an over-long prompt — see the next section. Flow returns the
+> identical message for both, and the fix is completely different.
+
+## Prompt length limit
+
+Flow refuses **over-long prompts** with the *exact same* "unusual activity" message it uses for rate
+limiting. The two are easy to confuse, and the difference matters: one needs a wait, the other needs
+an edit.
+
+Measured boundary, with identical references and in the same sessions:
+
+| Combined prompt length | Result |
+| --- | --- |
+| 2367 characters | accepted |
+| 2427 characters | accepted |
+| **2510 characters** | **refused — three separate attempts** |
+
+The ceiling is therefore roughly **2450 characters**. It is server-side: the prompt box itself
+accepts 5000+ characters without truncating, and there is no `maxlength` or counter in the DOM.
+
+The limit applies to the **whole prompt**, which is the job-wide `style` plus the item's `prompt`, so
+a long `style` consumes most of the budget for every item:
+
+```
+style    1858 chars   <- shared by every prompt
+scene     414-677 chars
+join          1 char
+total    2273-2536 chars
+```
+
+That works out at roughly **78% style, 22% scene** — so trimming the `style` is far cheaper than
+editing every prompt. Removing about 20 words from a 258-word style brought the longest prompt from
+2536 down to ~2400 and fixed 26 items in one edit.
+
+### The tool warns before spending anything
+
+Every prompt is checked at load time against `generation.maxPromptChars` (default **2420**) and the
+offending items are named:
+
+```
+WARN  26 of 85 prompts exceed 2420 characters (longest 2536) and will be refused by Flow as
+      "unusual activity". The job-wide "style" contributes 1858 characters to every prompt.
+      Shorten: S01_01_HYB_PR, S01_03_SCN_PL, S04_02_HYB_PR, +23 more
+```
+
+Set it in `config/settings.json`, or per job in `defaults`:
+
+```json
+{ "defaults": { "maxPromptChars": 2420 } }
+```
+
+This is a warning threshold, not an enforced truncation — nothing is ever silently cut from a
+prompt. Lower it to leave headroom.
+
+> A refusal is currently treated as **non-retryable and stops the batch**, so an over-long prompt
+> does not just fail its own item — it ends the run, leaving the rest `pending`. Trim the offending
+> prompts before starting.
+
 ## Calibrating selectors
 
 The current selectors are verified against Flow as of 2026-09-21. When Flow's UI changes:
@@ -467,7 +529,8 @@ From Google's own Flow guidance:
 | Symptom | Fix |
 | --- | --- |
 | Google refuses sign-in | Use real Chrome (`browser.channel: "chrome"`) and avoid `--headless` for login. |
-| `Flow refused the generation: ... unusual activity` | You are throttled. Wait, then raise `delayBetweenItemsMs`. |
+| `Flow refused the generation: ... unusual activity` | Two different causes, same message. Check the load-time prompt-length warning first; if the prompt is short, you are throttled — wait, then raise `delayBetweenItemsMs`. |
+| `N of 85 prompts exceed ... characters` at load | The job-wide `style` is usually most of it. Trim the style, not every prompt. |
 | `Could not locate the Flow UI element "x"` | Re-run `npm run discover` and update that key. |
 | `Generated the asset but could not save it` | Calibrate `assetTile`; check `debug/` for the grid state. |
 | Settings never applied | Ensure `agent` is `false`; the settings trigger is hidden while Agent mode is on. |
@@ -478,5 +541,9 @@ From Google's own Flow guidance:
 - It drives the web UI, so it is only as stable as Flow's markup. Calibration is ongoing
   maintenance.
 - Generation is sequential, and Google throttles rapid automated runs.
+- **Combined prompts (style + scene) must stay under roughly 2450 characters.** Over-long prompts are
+  refused with the same message as throttling, and currently stop the batch rather than skipping the
+  item.
+- A refusal ends the run; remaining items stay `pending` and resume on the next attempt.
 - Automating a Google product may conflict with its terms of service. Use your own account, keep
   volumes reasonable, and review Flow's terms before running large batches.
