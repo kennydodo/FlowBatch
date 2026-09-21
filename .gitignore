@@ -1,0 +1,24 @@
+node_modules/
+
+# Playwright persistent browser profile (contains the Google session)
+profile/
+profile-*/
+
+# Runtime artefacts
+output/*
+!output/.gitkeep
+downloads/
+state/
+debug/
+discover/
+
+# Local overrides
+config/settings.local.json
+config/selectors.local.json
+
+# User media
+refs/*
+!refs/.gitkeep
+
+.env
+*.log

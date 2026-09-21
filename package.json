@@ -1,0 +1,20 @@
+{
+  "name": "flow-images-gen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright batch image generator for Google Flow, driven by reference images.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "login": "node src/cli.js login",
+    "discover": "node src/cli.js discover",
+    "doctor": "node src/cli.js doctor",
+    "generate": "node src/cli.js generate",
+    "gen": "node src/cli.js generate"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  }
+}

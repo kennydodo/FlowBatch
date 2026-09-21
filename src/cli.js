@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+import { parseArgs } from './lib/args.js';
+import { buildContext } from './lib/context.js';
+import { log, setColor, setLevel } from './lib/log.js';
+import { loginCommand } from '../commands/login.js';
+import { discoverCommand } from '../commands/discover.js';
+import { doctorCommand } from '../commands/doctor.js';
+import { generateCommand } from '../commands/generate.js';
+
+const COMMANDS = {
+  login: {
+    run: loginCommand,
+    valueFlags: ['channel', 'slowmo', 'url'],
+    summary: 'Open the persistent browser profile so you can sign in to Google Flow once.',
+    extra: '  --confirm         Wait for Enter before closing, so you can finish Google verification',
+  },
+  discover: {
+    run: discoverCommand,
+    valueFlags: ['wait', 'navigate', 'channel', 'slowmo', 'url', 'click', 'dump', 'agent', 'upload'],
+    summary: 'Dump the Flow DOM (testids, buttons, file inputs) to calibrate config/selectors.json.',
+    extra: '  --click <selector>   Click a selector before dumping (repeatable) to open popovers/menus',
+  },
+  doctor: {
+    run: doctorCommand,
+    valueFlags: ['channel', 'slowmo', 'url', 'project-url'],
+    summary: 'Check the environment, config and (with --live) resolve every selector on the real page.',
+  },
+  generate: {
+    run: generateCommand,
+    valueFlags: ['job', 'only', 'limit', 'channel', 'slowmo', 'url'],
+    summary: 'Run a batch job: many prompts x reference images -> generated images.',
+  },
+};
+
+const GLOBAL_VALUE_FLAGS = ['log-level'];
+
+const HELP = `FlowImagesGen — Playwright batch image generator for Google Flow
+
+Usage
+  node src/cli.js <command> [options]
+  npm run <command> -- [options]
+
+Commands
+  login      ${COMMANDS.login.summary}
+  discover   ${COMMANDS.discover.summary}
+  doctor     ${COMMANDS.doctor.summary}
+  generate   ${COMMANDS.generate.summary}
+
+login options
+  --confirm             Wait for Enter before closing, so you can finish Google verification
+  --keep-open           Leave the browser open when the run finishes
+
+discover options
+  --wait <seconds>      Seconds to let the page settle before dumping (default: 8)
+  --navigate <url>      Navigate somewhere before dumping
+  --click <selector>    Click a selector before dumping; repeatable, e.g. to open the Settings popover
+  --dump <selector>     Save the outerHTML of matches to discover/; repeatable
+  --agent <on|off>      Force the Agent mode toggle into a known state before dumping
+  --upload <file>       Upload a reference image through the Add ingredients menu; repeatable
+  --html                Also save the full page HTML
+
+doctor options
+  --live                Resolve every selector against the live page (needs a signed-in profile)
+  --project-url <url>   Project to check against; prompt-box controls only exist inside a project
+
+Common options
+  --log-level <debug|info|warn|error>   Console verbosity (default: info)
+  --no-color                            Disable coloured output
+  --channel <name>                      Browser channel, e.g. chrome or msedge
+  --headless                            Run without a visible window (not recommended for login)
+  --url <url>                           Override the Flow URL
+
+generate options
+  --job <file>          Job file to run (required)
+  --only <id,id>        Run only these item ids
+  --limit <n>           Run at most n items
+  --no-resume           Re-run items already marked done in state/<job>.json
+  --reset-state         Clear stored state before running
+  --dry-run             Print the plan without launching a browser
+  --fail-fast           Stop at the first failed item
+  --pause-on-error      Keep the browser open and wait for Enter after a failure
+  --no-dump-on-error    Do not write debug/ screenshots + HTML on failure
+  --keep-open           Leave the browser open when the run finishes
+
+Typical first run
+  npm run login
+  npm run discover
+  npm run doctor -- --live
+  npm run generate -- --job config/jobs.example.json --dry-run
+  npm run generate -- --job config/jobs.example.json
+`;
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const commandName = argv[0] && !argv[0].startsWith('--') ? argv[0] : null;
+  const rest = commandName ? argv.slice(1) : argv;
+
+  if (!commandName || commandName === 'help' || rest.includes('--help') || rest.includes('-h')) {
+    process.stdout.write(HELP);
+    return 0;
+  }
+
+  const command = COMMANDS[commandName];
+  if (!command) {
+    log.error(`Unknown command "${commandName}". Available: ${Object.keys(COMMANDS).join(', ')}`);
+    process.stdout.write(`\n${HELP}`);
+    return 1;
+  }
+
+  const { flags, positionals } = parseArgs(rest, {
+    valueFlags: [...command.valueFlags, ...GLOBAL_VALUE_FLAGS],
+  });
+
+  if (flags['log-level']) setLevel(flags['log-level']);
+  if (flags.color === false) setColor(false);
+
+  const context = buildContext(flags);
+  return command.run({ flags, context, positionals });
+}
+
+main()
+  .then((code) => {
+    process.exitCode = code ?? 0;
+  })
+  .catch((error) => {
+    log.error(String(error?.message ?? error));
+    if (process.env.FLOW_IMAGES_GEN_DEBUG) log.debug(error?.stack ?? '');
+    process.exitCode = 1;
+  });
