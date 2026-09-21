@@ -3,8 +3,15 @@ import path from 'node:path';
 
 import { fromRoot, ROOT } from '../src/lib/paths.js';
 import { log } from '../src/lib/log.js';
-import { intFlag } from '../src/lib/args.js';
-import { describeUpscaler, engineLabel, loadUpscaleSettings, saveUpscaleSettings, upscaleImage } from '../src/upscale/index.js';
+import {
+  TIERS,
+  describeUpscaler,
+  engineLabel,
+  loadUpscaleSettings,
+  normalizeTier,
+  saveUpscaleSettings,
+  upscaleImage,
+} from '../src/upscale/index.js';
 
 function collectInputs(targets) {
   const files = [];
@@ -24,32 +31,45 @@ function collectInputs(targets) {
   return files;
 }
 
+function printInfo() {
+  const info = describeUpscaler();
+  log.heading('Upscaler');
+  log.raw(`  engine      : ${info.engineAvailable ? 'realesrgan-ncnn-vulkan' : 'NOT INSTALLED'}`);
+  log.raw(`  device      : ${info.deviceName ?? 'auto-detect on first use'}`);
+  log.raw(`  tier        : ${TIERS[info.tier]?.label ?? info.tier} (default)`);
+  log.raw(`  model       : ${info.model}`);
+  log.raw(`  supersample : ${info.supersample ? 'yes' : 'no'}`);
+  log.raw(`  fit         : ${info.fit}`);
+  log.raw(`  fallback    : ${info.cpuFallback ? 'CPU Lanczos' : 'disabled'}`);
+  log.raw('');
+  log.raw('  tier  target for 16:9   other ratios (long side)');
+  for (const tier of info.tiers) {
+    log.raw(`  ${tier.label.padEnd(4)}  ${tier.sixteenNine.padEnd(16)}  ${tier.aspect}`);
+  }
+  log.raw('');
+  log.raw('Usage: node src/cli.js upscale <file-or-folder> [more...] [--tier 1k|2k|3k|4k|off]');
+  log.raw('       node src/cli.js upscale --set-tier 4k');
+}
+
 export async function upscaleCommand({ flags, positionals }) {
-  // `--set-scale` remembers the choice without processing anything.
-  if (flags['set-scale'] !== undefined) {
-    const saved = saveUpscaleSettings({ scale: intFlag(flags, 'set-scale', 2) });
-    log.ok(`Upscale level saved as ${saved.scale}x. It will be used for future runs.`);
+  // `--set-tier` remembers the choice without processing anything.
+  const requested = flags['set-tier'] ?? flags['set-scale'];
+  if (requested !== undefined) {
+    const saved = saveUpscaleSettings({ tier: normalizeTier(requested === true ? '2k' : requested) });
+    log.ok(`Upscale tier saved as ${TIERS[saved.tier]?.label ?? saved.tier}. Future runs will use it.`);
     return 0;
   }
 
   if (positionals.length === 0) {
-    const info = describeUpscaler();
-    log.heading('Upscaler');
-    log.raw(`  engine   : ${info.engineAvailable ? 'realesrgan-ncnn-vulkan' : 'NOT INSTALLED'}`);
-    log.raw(`  device   : ${info.deviceName ?? 'auto-detect on first use'}`);
-    log.raw(`  scale    : ${info.scale}x (default)`);
-    log.raw(`  model    : ${info.model}`);
-    log.raw(`  fallback : ${info.cpuFallback ? 'CPU Lanczos' : 'disabled'}`);
-    log.raw('');
-    log.raw('Usage: node src/cli.js upscale <file-or-folder> [more...] [--scale 1|2|3|4] [--out <dir>]');
-    log.raw('       node src/cli.js upscale --set-scale 3');
+    printInfo();
     return 0;
   }
 
   const settings = loadUpscaleSettings();
-  const scale = flags.scale !== undefined ? intFlag(flags, 'scale', settings.scale) : settings.scale;
+  const tier = normalizeTier(flags.tier ?? flags.scale ?? settings.tier);
   const model = typeof flags.model === 'string' ? flags.model : settings.model;
   const outDir = typeof flags.out === 'string' ? fromRoot(flags.out) : null;
+  const fit = typeof flags.fit === 'string' ? flags.fit : settings.fit;
 
   const inputs = collectInputs(positionals);
   if (inputs.length === 0) {
@@ -58,21 +78,29 @@ export async function upscaleCommand({ flags, positionals }) {
   }
 
   if (flags.save === true) {
-    saveUpscaleSettings({ scale, model });
-    log.info(`Saved ${scale}x / ${model} as the default.`);
+    saveUpscaleSettings({ tier, model, fit });
+    log.info(`Saved ${tier} / ${model} / fit=${fit} as the default.`);
   }
 
-  log.heading(`Upscaling ${inputs.length} image(s) at ${scale}x`);
+  log.heading(`Upscaling ${inputs.length} image(s) to ${TIERS[tier]?.label ?? tier}`);
   let failed = 0;
 
   for (const input of inputs) {
     const destination = outDir
       ? path.join(outDir, path.basename(input))
-      : path.join(path.dirname(input), path.basename(input, path.extname(input)) + `_${scale}x.png`);
+      : path.join(path.dirname(input), `${path.basename(input, path.extname(input))}_${tier}.png`);
 
     try {
       const started = Date.now();
-      const result = upscaleImage(input, destination, { scale, model });
+      const result = upscaleImage(input, destination, {
+        tier,
+        model,
+        fit,
+        tile: settings.tile,
+        cpuFallback: settings.cpuFallback,
+        supersample: settings.supersample,
+        enginePath: settings.enginePath,
+      });
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
       log.ok(
         `${path.relative(ROOT, input)} -> ${path.relative(ROOT, destination)} ` +

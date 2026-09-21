@@ -7,7 +7,7 @@
     "mode": "image",
     "aspectRatio": "16:9",
     "outputs": 1,
-    "model": null,
+    "model": "Nano Banana 2",
     "refs": ["refs/character-a.png"],
     "promptPrefix": "",
     "promptSuffix": ""

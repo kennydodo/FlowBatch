@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { ROOT, fromRoot } from './lib/paths.js';
 import { readJson } from './lib/json.js';
 import { log } from './lib/log.js';
-import { describeUpscaler, normalizeScale, saveUpscaleSettings } from './upscale/index.js';
+import { describeUpscaler, normalizeTier, saveUpscaleSettings } from './upscale/index.js';
 
 const UI_DIR = path.join(ROOT, 'ui');
 const CLI = path.join(ROOT, 'src', 'cli.js');
@@ -331,10 +331,12 @@ async function handle(req, res) {
     try {
       const body = await readBody(req);
       const patch = {};
-      if (body.scale !== undefined) patch.scale = normalizeScale(body.scale);
+      if (body.tier !== undefined) patch.tier = normalizeTier(body.tier);
       if (body.model !== undefined) patch.model = String(body.model);
+      if (body.fit !== undefined) patch.fit = String(body.fit);
+      if (body.supersample !== undefined) patch.supersample = Boolean(body.supersample);
       const saved = saveUpscaleSettings(patch);
-      logLine('meta', `Upscale level set to ${saved.scale}x (${saved.model}).`);
+      logLine('meta', `Upscale tier set to ${saved.tier} (${saved.model}, fit=${saved.fit}).`);
       sendJson(res, 200, describeUpscaler());
     } catch (error) {
       sendJson(res, 400, { error: String(error.message) });

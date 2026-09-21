@@ -10,6 +10,18 @@ import { SelectorSet } from './selectors.js';
 
 const REFERENCE_CONFIRM_MS = 20000;
 
+/**
+ * Normalise a model label for comparison: drop the leading emoji and any icon
+ * text, collapse whitespace, and lowercase.
+ */
+function normalizeModelName(value) {
+  return String(value ?? '')
+    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 export class FlowDriver {
   constructor({ page, context, selectors, settings }) {
     this.page = page;
@@ -265,22 +277,67 @@ export class FlowDriver {
     return pressed === 'true';
   }
 
+  /**
+   * Model names are prefixes of one another ("Nano Banana 2" vs "Nano Banana 2
+   * Lite"), so substring matching would silently pick the wrong model. Compare
+   * normalised labels for equality instead, and say so when only a near match
+   * exists.
+   */
   async selectModel(name) {
     if (!name) return true;
+    const wanted = normalizeModelName(name);
     const button = await this.find('modelFamilyButton', { timeout: 8000 });
-    if ((await this.labelOf(button.locator)).includes(name)) return true;
+
+    const current = normalizeModelName(await this.modelButtonLabel(button.locator));
+    if (current === wanted) {
+      log.debug(`Model already set to "${name}".`);
+      return true;
+    }
 
     await button.locator.click();
     await sleep(700);
-    const option = await this.findByText(name, { timeout: 6000, required: false });
-    if (!option) {
+
+    const items = this.page.locator("[role='menuitem']");
+    const count = await items.count().catch(() => 0);
+    let exact = -1;
+    let first = -1;
+    const seen = [];
+
+    for (let index = 0; index < count; index += 1) {
+      const raw = (await items.nth(index).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+      if (!raw) continue;
+      seen.push(raw);
+      if (first < 0) first = index;
+      if (normalizeModelName(raw) === wanted) {
+        exact = index;
+        break;
+      }
+    }
+
+    const chosen = exact >= 0 ? exact : first;
+    if (chosen < 0) {
       await this.page.keyboard.press('Escape').catch(() => {});
-      log.warn(`Model "${name}" was not found in the model menu; keeping the current model.`);
+      log.warn(`No model named "${name}" in the model menu (saw: ${seen.join(', ')}). Keeping the current model.`);
       return false;
     }
-    await option.locator.click();
+    if (exact < 0) {
+      log.warn(`No exact model named "${name}"; falling back to "${seen[0]}".`);
+    }
+
+    await items.nth(chosen).click();
     await sleep(600);
     return true;
+  }
+
+  /** The model button's own text, without the trailing icon ligature. */
+  async modelButtonLabel(locator) {
+    return locator
+      .evaluate((element) => {
+        const clone = element.cloneNode(true);
+        clone.querySelectorAll('mat-icon').forEach((icon) => icon.remove());
+        return clone.textContent ?? '';
+      })
+      .catch(() => '');
   }
 
   async setAspectRatio(ratio) {

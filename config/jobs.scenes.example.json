@@ -12,7 +12,7 @@
   "defaults": {
     "mode": "image",
     "agent": false,
-    "model": "Nano Banana 2 Lite",
+    "model": "Nano Banana 2",
     "aspectRatio": "16:9",
     "outputs": 1,
     "refMode": "reuse"

@@ -49,7 +49,8 @@ export function printPlan(job, items, settings) {
   log.raw(`  project     : ${job.project ?? '(new project each run)'}`);
   log.raw(`  outputs dir : ${path.relative(ROOT, job.outputsDir)}`);
   log.raw(
-    `  upscale     : ${upscale.scale}x (${upscale.model})${upscale.scale > 1 ? '' : ' — disabled'}`,
+    `  upscale     : ${upscale.tier === 'off' ? 'off' : `${upscale.tier.toUpperCase()} via ${upscale.model}`}` +
+      `${upscale.supersample && upscale.tier !== 'off' ? ' (supersampled)' : ''}`,
   );
   log.raw(`  items       : ${items.length}`);
   for (const item of items) {
@@ -109,8 +110,8 @@ export async function runJob({ job, driver, state, settings, options }) {
   }
 
   const upscale = loadUpscaleSettings();
-  const upscaleEnabled = Number(upscale.scale) > 1;
-  if (upscaleEnabled) log.info(`Upscaling every result ${upscale.scale}x (${upscale.model}).`);
+  const upscaleEnabled = upscale.tier !== 'off';
+  if (upscaleEnabled) log.info(`Upscaling every result to ${upscale.tier.toUpperCase()} (${upscale.model}).`);
 
   const gen = settings.generation ?? {};
   const globalRetries = Number(gen.retries ?? 0);
@@ -234,14 +235,16 @@ export async function runJob({ job, driver, state, settings, options }) {
           // Flow hands back roughly 720p. Upscale next to the original so the
           // 720p master survives for a different level later.
           if (upscaleEnabled) {
-            const upscaledPath = path.join(job.outputsDir, `${stem}_${upscale.scale}x.png`);
+            const upscaledPath = path.join(job.outputsDir, `${stem}_${upscale.tier}.png`);
             try {
               const started = Date.now();
               const upscaled = upscaleImage(destPath, upscaledPath, {
-                scale: upscale.scale,
+                tier: upscale.tier,
                 model: upscale.model,
+                fit: upscale.fit,
                 tile: upscale.tile,
                 cpuFallback: upscale.cpuFallback,
+                supersample: upscale.supersample,
                 enginePath: upscale.enginePath,
               });
               saved.push(upscaledPath);

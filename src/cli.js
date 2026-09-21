@@ -43,8 +43,8 @@ const COMMANDS = {
   },
   upscale: {
     run: upscaleCommand,
-    valueFlags: ['scale', 'model', 'out', 'set-scale'],
-    summary: 'Upscale PNGs 1x/2x/3x/4x on the GPU (Real-ESRGAN), falling back to CPU.',
+    valueFlags: ['tier', 'model', 'out', 'fit', 'set-tier', 'set-scale', 'scale'],
+    summary: 'Upscale PNGs to a 1K/2K/3K/4K tier on the GPU (Real-ESRGAN), falling back to CPU.',
   },
 };
 
@@ -83,12 +83,13 @@ doctor options
   --project-url <url>   Project to check against; prompt-box controls only exist inside a project
 
 upscale options
-  --scale <1|2|3|4>     Upscale factor; 1 is a pass-through (default: from config)
+  --tier <t>            off | 1k | 2k | 3k | 4k (default: from config)
   --model <name>        realesr-animevideov3 | realesrgan-x4plus | realesrgan-x4plus-anime
+  --fit <mode>          exact (stretch to the tier) | aspect (keep 16:9, e.g. 2K -> 2048x1152)
   --out <dir>           Write results here instead of beside each input
-  --set-scale <1|2|3|4> Remember this level as the default and exit
-  --save                Also remember --scale / --model as the default
-  With no arguments, prints the engine, device and current settings.
+  --set-tier <t>        Remember this tier as the default and exit
+  --save                Also remember --tier / --model / --fit as the default
+  With no arguments, prints the engine, device, tiers and current settings.
 
 repair options
   --job <file>          Job JSON to repair (or pass it as the first argument)

@@ -17,7 +17,25 @@ import {
   saveDeviceCache,
 } from './engine.js';
 
-export const SCALES = [1, 2, 3, 4];
+/**
+ * Upscale tiers, named for the resolution they deliver rather than a multiplier
+ * (from a ~720p master, "3x" was really 4K, which was misleading).
+ *
+ * `exact16x9` is used for 16:9 sources so the output lands on the intended
+ * broadcast resolution. Every other aspect keeps its own ratio and matches the
+ * tier's long side instead, so nothing is ever distorted.
+ *
+ * Note 2K: 2048x1080 is DCI 2K (1.896:1), not 16:9, so a 16:9 source is
+ * stretched by ~5.8% to fill it. Set `fit: "aspect"` to get 2048x1152 instead.
+ */
+export const TIERS = {
+  '1k': { label: '1K', longSide: 1920, exact16x9: [1920, 1080] },
+  '2k': { label: '2K', longSide: 2048, exact16x9: [2048, 1080], aspect16x9: [2048, 1152] },
+  '3k': { label: '3K', longSide: 3200, exact16x9: [3200, 1800] },
+  '4k': { label: '4K', longSide: 3840, exact16x9: [3840, 2160] },
+};
+
+export const TIER_NAMES = Object.keys(TIERS);
 
 /** Which native scales each model ships with. */
 const MODEL_SCALES = {
@@ -30,11 +48,12 @@ const CONFIG_FILE = path.join(ROOT, 'config', 'upscale.json');
 const LOCAL_FILE = path.join(ROOT, 'config', 'upscale.local.json');
 
 export const UPSCALE_DEFAULTS = {
-  // 1x disables upscaling; 2x is the default (720p -> 1440p, i.e. 2K).
-  scale: 2,
+  tier: '2k',
   model: 'realesr-animevideov3',
   tile: 256,
   cpuFallback: true,
+  supersample: true,
+  fit: 'exact',
   enginePath: null,
 };
 
@@ -62,16 +81,87 @@ export function saveUpscaleSettings(patch) {
   return { ...UPSCALE_DEFAULTS, ...stripComments(readJson(CONFIG_FILE, { required: false })), ...next };
 }
 
-export function normalizeScale(value) {
-  const scale = Number(value);
-  if (!Number.isInteger(scale) || !SCALES.includes(scale)) {
-    throw new Error(`Upscale scale must be one of ${SCALES.join(', ')} (got "${value}").`);
-  }
-  return scale;
+/** Accepts "off", "1k".."4k", or the legacy numeric multiplier. */
+export function normalizeTier(value) {
+  if (value === undefined || value === null) return UPSCALE_DEFAULTS.tier;
+  const text = String(value).trim().toLowerCase();
+  if (text === 'off' || text === 'none' || text === '0' || text === 'false') return 'off';
+  if (TIER_NAMES.includes(text)) return text;
+  const legacy = { 1: '1k', 2: '2k', 3: '3k', 4: '4k' }[Number(text)];
+  if (legacy) return legacy;
+  throw new Error(`Upscale tier must be one of off, ${TIER_NAMES.join(', ')} (got "${value}").`);
 }
 
-function targetSize(width, height, scale) {
-  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+/**
+ * Standard broadcast ratios. Flow's own masters are close to, but not exactly,
+ * these — its "9:16" is 768x1376 (0.5581, not 0.5625) — so `fit: "exact"` snaps
+ * to the nominal ratio and produces timeline-ready sizes.
+ */
+const NOMINAL_RATIOS = [
+  { ratio: 16 / 9, size: (long) => [long, Math.round((long * 9) / 16)] },
+  { ratio: 9 / 16, size: (long) => [Math.round((long * 9) / 16), long] },
+  { ratio: 4 / 3, size: (long) => [long, Math.round((long * 3) / 4)] },
+  { ratio: 3 / 4, size: (long) => [Math.round((long * 3) / 4), long] },
+  { ratio: 1, size: (long) => [long, long] },
+];
+
+const RATIO_TOLERANCE = 0.02;
+
+function ratioDistance(a, b) {
+  return Math.abs(a - b) / b;
+}
+
+function isSixteenNine(width, height) {
+  return ratioDistance(width / height, 16 / 9) < 0.01;
+}
+
+function nearestNominal(aspect) {
+  let best = null;
+  for (const candidate of NOMINAL_RATIOS) {
+    const distance = ratioDistance(aspect, candidate.ratio);
+    if (distance <= RATIO_TOLERANCE && (best === null || distance < best.distance)) {
+      best = { ...candidate, distance };
+    }
+  }
+  return best;
+}
+
+/**
+ * The exact output size for a source at a given tier.
+ *
+ * `exact`  — snap to the standard ratio and use the tier's dimensions, so the
+ *            result drops into a timeline without further scaling.
+ * `aspect` — keep the master's own ratio and match the tier's long side, which
+ *            never resamples non-uniformly but yields odd sizes.
+ */
+export function targetSizeFor(sourceWidth, sourceHeight, tier, fit = 'exact') {
+  const spec = TIERS[tier];
+  if (!spec) throw new Error(`Unknown tier "${tier}".`);
+
+  const aspect = sourceWidth / sourceHeight;
+  const long = spec.longSide;
+
+  if (fit === 'aspect') {
+    return sourceWidth >= sourceHeight
+      ? { width: long, height: Math.round(long / aspect) }
+      : { width: Math.round(long * aspect), height: long };
+  }
+
+  if (isSixteenNine(sourceWidth, sourceHeight)) {
+    const size = spec.exact16x9;
+    return { width: size[0], height: size[1] };
+  }
+
+  const nominal = nearestNominal(aspect);
+  if (nominal) {
+    const [width, height] = nominal.size(long);
+    return { width, height };
+  }
+
+  // Unrecognised ratio: preserve it rather than distort.
+  return sourceWidth >= sourceHeight
+    ? { width: long, height: Math.round(long / aspect) }
+    : { width: Math.round(long * aspect), height: long };
 }
 
 function writeFlattened(source, destination) {
@@ -82,7 +172,7 @@ function writeFlattened(source, destination) {
 }
 
 /**
- * Upscale a PNG by an integer factor.
+ * Upscale a PNG to a resolution tier.
  *
  * GPU (Real-ESRGAN ncnn-Vulkan) is tried first; the CPU Lanczos path is used
  * when no Vulkan device produces valid output. Every GPU result is compared
@@ -90,21 +180,21 @@ function writeFlattened(source, destination) {
  */
 export function upscaleImage(source, destination, options = {}) {
   const settings = { ...loadUpscaleSettings(), ...options };
-  const scale = normalizeScale(settings.scale);
+  const tier = normalizeTier(settings.tier);
   const model = settings.model ?? UPSCALE_DEFAULTS.model;
 
   if (!fs.existsSync(source)) throw new Error(`Image not found: ${source}`);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
 
-  // 1x is a pass-through: no engine, no resampling.
-  if (scale === 1) {
+  const sourceImage = decodePng(fs.readFileSync(source));
+
+  // "off" keeps the master exactly as Flow produced it.
+  if (tier === 'off') {
     fs.copyFileSync(source, destination);
-    const decoded = decodePng(fs.readFileSync(destination));
-    return { width: decoded.width, height: decoded.height, method: 'none', device: null, scale };
+    return { width: sourceImage.width, height: sourceImage.height, method: 'none', device: null, tier };
   }
 
-  const sourceImage = decodePng(fs.readFileSync(source));
-  const target = targetSize(sourceImage.width, sourceImage.height, scale);
+  const target = targetSizeFor(sourceImage.width, sourceImage.height, tier, settings.fit);
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-upscale-'));
   const flatPath = path.join(workDir, 'input_rgb.png');
@@ -112,11 +202,22 @@ export function upscaleImage(source, destination, options = {}) {
 
   try {
     const flat = writeFlattened(source, flatPath);
+
+    // Supersample: run the engine one native scale above the smallest that
+    // covers the target, then Lanczos-downscale. The GAN synthesises at the
+    // larger size and the downscale removes its artifacts, which is cleaner
+    // than resampling up from the smaller native scale.
+    const needed = Math.max(target.width / flat.width, target.height / flat.height);
     const nativeScales = MODEL_SCALES[model] ?? [4];
-    const engineScale = nativeScales.includes(scale) ? scale : 4;
+    const fittingIndex = nativeScales.findIndex((scale) => scale >= needed - 1e-6);
+    const baseIndex = fittingIndex >= 0 ? fittingIndex : nativeScales.length - 1;
+    const engineScale =
+      settings.supersample === false
+        ? nativeScales[baseIndex]
+        : nativeScales[Math.min(baseIndex + 1, nativeScales.length - 1)];
 
     if (isAvailable(settings.enginePath)) {
-      let gpu = cachedGpu();
+      const gpu = cachedGpu();
       const candidates = [];
       if (gpu !== null) candidates.push(gpu);
       candidates.push(null); // the engine's own device choice as a second chance
@@ -143,7 +244,9 @@ export function upscaleImage(source, destination, options = {}) {
           }
 
           const finished =
-            engineScale === scale ? produced : resizeLanczos(produced, target.width, target.height);
+            produced.width === target.width && produced.height === target.height
+              ? produced
+              : resizeLanczos(produced, target.width, target.height);
           fs.writeFileSync(destination, encodePng(finished));
 
           if (candidate !== null) {
@@ -164,7 +267,8 @@ export function upscaleImage(source, destination, options = {}) {
             method: 'realesrgan',
             device: candidate === null ? 'auto' : deviceNameFromOutput(result, candidate),
             model,
-            scale,
+            tier,
+            engineScale,
           };
         } catch (error) {
           log.debug(`Upscaler attempt on device ${candidate} failed: ${error.message}`);
@@ -188,29 +292,39 @@ export function upscaleImage(source, destination, options = {}) {
       method: 'lanczos',
       device: 'CPU',
       model: null,
-      scale,
+      tier,
     };
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 }
 
-/** "realesrgan (NVIDIA GeForce RTX 3050 Laptop GPU, 2x)" — for logs and the UI. */
+/** "Real-ESRGAN (NVIDIA GeForce RTX 3050 Laptop GPU, 4K)" — for logs and the UI. */
 export function engineLabel(result) {
   if (!result) return 'unknown';
-  if (result.method === 'none') return '1x (no upscale)';
-  if (result.method === 'lanczos') return `Lanczos CPU (${result.scale}x)`;
-  return `Real-ESRGAN (${result.device}, ${result.scale}x)`;
+  if (result.method === 'none') return 'original (upscale off)';
+  const tier = TIERS[result.tier]?.label ?? result.tier;
+  if (result.method === 'lanczos') return `Lanczos CPU (${tier})`;
+  return `Real-ESRGAN (${result.device}, ${tier})`;
 }
 
 export function describeUpscaler() {
   const settings = loadUpscaleSettings();
-  const available = isAvailable(settings.enginePath);
   const cache = loadDeviceCache();
+  const spec = TIERS[settings.tier];
   return {
     ...settings,
-    engineAvailable: available,
+    engineAvailable: isAvailable(settings.enginePath),
     deviceName: cache.name ?? null,
     deviceKind: cache.kind ?? null,
+    tiers: Object.entries(TIERS).map(([id, value]) => ({
+      id,
+      label: value.label,
+      sixteenNine: value.exact16x9.join('x'),
+      aspect: (value.aspect16x9 ?? value.exact16x9).join('x'),
+    })),
+    target16x9: spec
+      ? (settings.fit === 'aspect' && spec.aspect16x9 ? spec.aspect16x9 : spec.exact16x9).join('×')
+      : null,
   };
 }

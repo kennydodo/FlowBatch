@@ -260,18 +260,42 @@ is the only route — but for references already in the project it is a single c
 
 ## Upscaling
 
-Flow returns roughly 720p. Every result can be upscaled on the way out, at **1x, 2x, 3x or 4x**.
+Flow returns roughly 720p (its 16:9 master measures 1376×768). Every result can be upscaled on the
+way out to a **resolution tier**, named for what it delivers rather than a multiplier — from a 720p
+master a "3x" is really 4K, which was misleading.
 
-| Level | 1280×720 becomes | Typical name |
+| Tier | 16:9 target | Other ratios (long side) |
 | --- | --- | --- |
-| 1x | 1280×720 (pass-through, byte-for-byte copy) | 720p |
-| 2x | 2560×1440 | 2K |
-| 3x | 3840×2160 | 4K |
-| 4x | 5120×2880 | 5K |
+| `off` | 1376×768, byte-for-byte copy | — |
+| `1k` | 1920 × 1080 | 1920 long side |
+| `2k` (default) | 2048 × 1080 | 2048 long side |
+| `3k` | 3200 × 1800 | 3200 long side |
+| `4k` | 3840 × 2160 | 3840 long side |
 
-**Default is 2x**, and the choice is remembered — the web UI writes it as you change it, and
-`upscale --set-scale <n>` does the same from the terminal. It is stored in
+**Default is 2K**, and the choice is remembered — the web UI writes it as you change it, and
+`upscale --set-tier 4k` does the same from the terminal. It is stored in
 `config/upscale.local.json` (gitignored) so a local choice never dirties the repo.
+
+### `fit`: exact vs aspect
+
+Flow's masters are only *close* to standard ratios — its "9:16" is 768×1376 (0.5581, not 0.5625).
+
+- **`fit: "exact"`** (default) snaps to the standard ratio, so a 9:16 shot at 1K becomes exactly
+  **1080×1920** and drops into a timeline with no further scaling.
+- **`fit: "aspect"`** keeps the master's own ratio and matches the tier's long side, giving
+  1072×1920 for the same shot. Nothing is resampled non-uniformly, but the sizes are non-standard.
+
+The one caveat is 2K: 2048×1080 is DCI 2K (1.896:1), not 16:9, so a 16:9 source is stretched by
+about 5.8% to fill it. `fit: "aspect"` gives 2048×1152 instead. The other three tiers are exactly
+16:9 and involve no stretching.
+
+### Supersampling
+
+The engine runs one native scale **above** what the target needs and the result is Lanczos-downscaled
+(for example 4K runs at the model's 4x, then resamples to 3840×2160). The GAN synthesises at the
+larger size and the downscale removes its artifacts, which is cleaner than resampling up from the
+smaller native scale. This is the approach Renderly used. It costs time and VRAM; set
+`supersample: false` for the smallest scale that fits.
 
 ### GPU first, CPU fallback
 
@@ -292,19 +316,20 @@ The batch pipeline writes both, so the 720p master survives for a later re-upsca
 
 ```
 output/<job>/S02_02_MET_ZO.png       720p master from Flow
-output/<job>/S02_02_MET_ZO_2x.png    upscaled
+output/<job>/S02_02_MET_ZO_2k.png    upscaled
 ```
 
-At 1x only the master is written. An upscale failure warns and keeps the master — it never fails
-the item.
+With `tier: "off"` only the master is written. An upscale failure warns and keeps the master — it
+never fails the item.
 
 ### Standalone use
 
 ```powershell
-npm run upscale                                       # show engine, device and current level
-npm run upscale -- <file-or-folder> --scale 4         # upscale, writing <name>_4x.png
-npm run upscale -- <folder> --scale 2 --out D:\big    # write elsewhere
-npm run upscale -- --set-scale 3                      # remember 3x as the default
+npm run upscale                                        # engine, device, tiers and current setting
+npm run upscale -- <file-or-folder> --tier 4k          # upscale, writing <name>_4k.png
+npm run upscale -- <folder> --tier 2k --out D:\big     # write elsewhere
+npm run upscale -- <file> --tier 2k --fit aspect       # keep the master's exact ratio
+npm run upscale -- --set-tier 4k                       # remember 4K as the default
 ```
 
 Input must be **PNG** — which is what the pipeline produces. The engine and its models are vendored
@@ -325,7 +350,7 @@ The page drives the same CLI as a child process — it is a front end, not a sec
 | --- | --- |
 | **Job JSON** | Dropdown of every job in `config/`, plus **Choose…** for any JSON file elsewhere. |
 | **Save images to** | Native folder picker. Empty uses the job's own `outputsDir`. Passed as `--output`. |
-| **Upscale level** | 1x–4x, default 2x. Saved immediately and remembered between runs. |
+| **Upscale tier** | Off / 1K / 2K / 3K / 4K, default 2K. Saved immediately and remembered between runs. |
 | **Dry run** | Prints the plan and spends nothing. Worth ticking first. |
 | **Start Batch** | Spawns `generate`. Refused with a clear message if a batch is already running. |
 | **End Process** | Kills the whole process tree, so Playwright's Chrome does not survive the stop. |

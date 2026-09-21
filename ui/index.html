@@ -157,12 +157,13 @@
         </div>
 
         <div class="field">
-          <label for="upscale">Upscale level</label>
+          <label for="upscale">Upscale tier</label>
           <select id="upscale">
-            <option value="1">1x — no upscale (keep ~720p)</option>
-            <option value="2">2x — 1440p (2K)</option>
-            <option value="3">3x — 2160p (4K)</option>
-            <option value="4">4x — 2880p</option>
+            <option value="off">Off — keep the ~720p master only</option>
+            <option value="1k">1K — 1920 × 1080</option>
+            <option value="2k">2K — 2048 × 1080 (default)</option>
+            <option value="3k">3K — 3200 × 1800</option>
+            <option value="4k">4K — 3840 × 2160</option>
           </select>
           <div class="hint" id="upscaleHint">Saved as you change it.</div>
         </div>
@@ -319,11 +320,14 @@
       });
 
       function renderUpscale(info) {
-        $('upscale').value = String(info.scale);
+        $('upscale').value = info.tier;
         const device = info.engineAvailable
           ? info.deviceName || 'device detected on first use'
           : 'engine not installed — CPU only';
-        $('upscaleHint').textContent = `${info.model} · ${device} · remembered between runs`;
+        const target = info.target16x9 ? ` · 16:9 → ${info.target16x9}` : '';
+        const superSample = info.supersample && info.tier !== 'off' ? ' · supersampled' : '';
+        $('upscaleHint').textContent =
+          `${info.model} · ${device}${target}${superSample} · remembered between runs`;
       }
 
       async function loadUpscale() {
@@ -340,7 +344,7 @@
           const res = await fetch('/api/upscale', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ scale: Number(event.target.value) }),
+            body: JSON.stringify({ tier: event.target.value }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || res.statusText);

@@ -1,16 +1,27 @@
 {
   "_readme": [
-    "Upscaler defaults. Changes made in the web UI or with `upscale --save` are",
-    "written to config/upscale.local.json, which overrides this file and is",
+    "Upscaler defaults. Changes made in the web UI or with `upscale --set-tier`",
+    "are written to config/upscale.local.json, which overrides this file and is",
     "gitignored, so local choices survive restarts without dirtying the repo.",
-    "scale: 1 = no upscale (pass-through), 2 = default (720p -> 1440p / 2K), 3, 4.",
+    "",
+    "tier: off | 1k | 2k | 3k | 4k. Targets for a 16:9 source are 1920x1080,",
+    "2048x1080, 3200x1800 and 3840x2160. Other aspect ratios keep their own",
+    "ratio and match the tier's long side instead, so nothing is distorted.",
+    "Note 2K is DCI 2K (1.896:1), not 16:9, so a 16:9 source is stretched ~5.8%",
+    "to fill 2048x1080. Set fit to \"aspect\" for 2048x1152 instead.",
+    "",
+    "supersample: run the engine one native scale above what the target needs,",
+    "then downscale - the GAN synthesises larger and the downscale removes its",
+    "artifacts. Costs time and VRAM; set false for the smallest scale that fits.",
     "model: realesr-animevideov3 ships native x2/x3/x4 and suits illustration;",
-    "realesrgan-x4plus / -anime are x4 only and are downscaled for 2x and 3x."
+    "realesrgan-x4plus / -anime are x4 only."
   ],
 
-  "scale": 2,
+  "tier": "2k",
   "model": "realesr-animevideov3",
   "tile": 256,
   "cpuFallback": true,
+  "supersample": true,
+  "fit": "exact",
   "enginePath": null
 }
