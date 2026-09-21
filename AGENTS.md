@@ -2,6 +2,9 @@
 
 Project notes for automated agents working in this repository.
 
+> **Outstanding work is tracked in [`NEXT_SESSION.md`](./NEXT_SESSION.md)** — read it before
+> starting, and delete it once the list is clear.
+
 ## What this is
 
 A Playwright automation project that drives the Google Flow web UI to batch-generate images from
