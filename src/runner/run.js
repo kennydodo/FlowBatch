@@ -161,11 +161,10 @@ export async function runJob({ job, driver, state, settings, options }) {
           await driver.addReferences(item.refs, { mode: refMode });
         }
 
-        // Snapshot AFTER the references are attached: uploading a reference also
-        // adds a tile to the project grid, which must not be mistaken for a
-        // generated result.
-        await sleep(2500);
-        const before = await driver.snapshotAssets();
+        // Snapshot AFTER the references are attached and the grid has stopped
+        // changing: uploading a reference also adds a tile, and a 15 MB upload
+        // lands well after the attach step returns.
+        const before = await driver.waitForGridToSettle();
         log.debug(`Assets before generation: ${before.entries.length}`);
 
         log.info(
@@ -175,6 +174,7 @@ export async function runJob({ job, driver, state, settings, options }) {
 
         const outcome = await driver.waitForNewAssets(before, expected, {
           timeout: item.timeoutMs ?? settings.timeouts.generationMs,
+          excludeNames: item.refNames,
         });
 
         const saved = [];

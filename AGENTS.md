@@ -89,8 +89,16 @@ These were established by probing the live signed-in UI. Do not "fix" them from 
 - `input[aria-label='Editable text']` is the **project title**, not the prompt box.
 - The grid is a **virtual scroller**: only rendered tiles exist in the DOM.
 - **Uploaded references also appear as grid tiles**, labelled with their filename. Generated stills
-  are not. `snapshotAssets` records `uploaded` / `hasImage` / `failed` so uploads and refused
-  generations are not mistaken for results.
+  are not. `snapshotAssets` records `uploaded` / `hasImage` / `failed` / `canRedo` so uploads and
+  refused generations are not mistaken for results.
+- **Never identify a result by image `src` alone.** A tile's `src` changes when its thumbnail lazily
+  loads, so a 15 MB reference upload appeared as a "new asset" and was downloaded as the output —
+  silently producing a copy of the reference under the shot's filename. Results are identified by:
+  1. a new tile, not previously seen;
+  2. `!uploaded` (label is not a filename) and not matching any of the item's reference names;
+  3. preferring tiles that expose a **`redo`** control, which only generated results have.
+  `waitForGridToSettle()` must run after references are attached and before the "before" snapshot,
+  because a large upload lands well after the attach step returns.
 - Flow exports stills as **JPEG**; the extension is sniffed from the bytes.
 - Tile `<img>` srcs are signed CDN URLs that `context.request` can fetch, giving full resolution with
   no UI interaction. This is the primary download path.

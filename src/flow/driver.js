@@ -618,7 +618,34 @@ export class FlowDriver {
 
     await items.nth(chosen).click().catch(() => {});
     await sleep(1800);
+
+    // Clicking a result either attaches it and closes the library, or selects it
+    // and shows a preview that still needs "Add to prompt". Both happen, so the
+    // confirm step is conditional rather than assumed.
+    if (await this.pickerIsOpen()) {
+      const attach = await this.findByText('Add to prompt', { timeout: 8000, required: false });
+      if (attach) {
+        await attach.locator.click().catch(() => {});
+        await sleep(1500);
+      }
+    }
+
+    // Never leave an overlay covering the prompt box.
+    if (await this.pickerIsOpen()) {
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await sleep(500);
+    }
     return true;
+  }
+
+  /** Close the asset library if it is still on screen. */
+  async closeAssetLibrary() {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!(await this.pickerIsOpen())) return true;
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await sleep(500);
+    }
+    return !(await this.pickerIsOpen());
   }
 
   /**
@@ -672,7 +699,18 @@ export class FlowDriver {
       await this.attachUploadedFiles([ref.path]);
     }
 
-    return this.waitForReferences(before + refs.length);
+    const confirmed = await this.waitForReferences(before + refs.length);
+    if (!confirmed) {
+      // Generating without the intended reference would silently produce the
+      // wrong image, so fail the item and let the runner retry it.
+      await this.closeAssetLibrary();
+      throw new GenerationError(
+        `Attached ${refs.length} reference(s) but could not confirm them in the prompt box; refusing to ` +
+          'generate without them. Calibrate "promptReferenceChip" if this is a false alarm.',
+        { retryable: true },
+      );
+    }
+    return true;
   }
 
   async waitForFileInput(timeout) {
@@ -731,8 +769,14 @@ export class FlowDriver {
   // -------------------------------------------------------------- generation
 
   async generate() {
+    // An open popover (the asset library, a menu) covers the Generate button and
+    // makes the click time out, so clear anything still on screen first.
+    await this.closeAssetLibrary();
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await sleep(300);
+
     const button = await this.find('generateButton', { requireEnabled: true, timeout: 15000 });
-    await button.locator.click();
+    await button.locator.click({ timeout: 20000 });
   }
 
   async snapshotAssets() {
@@ -760,12 +804,17 @@ export class FlowDriver {
         const uploaded = /\.(png|jpe?g|webp|gif|heic?|mp4|m4v|mov|avi|3gp)\b/i.test(info.text);
         // Flow reports a refused generation inside the tile itself.
         const failed = /\b(failed|unusual activity|not been charged|try again)\b/i.test(info.text);
+        // Generated tiles offer "redo"; uploaded references never do. That is a
+        // far more reliable discriminator than the image src, which changes when
+        // a thumbnail lazily loads and made uploads look like new results.
+        const canRedo = /\bredo\b/i.test(info.text);
         entries.push({
           index,
           key: info.key || `#${index}`,
           text: info.text,
           uploaded,
           failed,
+          canRedo,
           hasImage: info.hasImage,
         });
       }
@@ -790,8 +839,39 @@ export class FlowDriver {
     return text || 'Flow reported a failed generation.';
   }
 
-  async waitForNewAssets(before, expected, { timeout } = {}) {
+  /**
+   * Wait until the grid stops changing, so reference uploads have finished
+   * adding their tiles before the "before" snapshot is taken.
+   */
+  async waitForGridToSettle({ stableForMs = 3000, timeoutMs = 40000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    let lastSignature = null;
+    let stableSince = Date.now();
+    let snapshot = await this.snapshotAssets();
+
+    while (Date.now() < deadline) {
+      const signature = snapshot.entries.map((entry) => entry.key).join('|');
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        stableSince = Date.now();
+      } else if (Date.now() - stableSince >= stableForMs) {
+        return snapshot;
+      }
+      await sleep(700);
+      snapshot = await this.snapshotAssets();
+    }
+    return snapshot;
+  }
+
+  async waitForNewAssets(before, expected, { timeout, excludeNames = [] } = {}) {
     const beforeKeys = new Set(before.entries.map((entry) => entry.key));
+    // Reference tiles can appear or re-render after the snapshot; never mistake
+    // one for a generated result.
+    const excluded = excludeNames
+      .flatMap((name) => [name, name.replace(/\.[a-z0-9]+$/i, '')])
+      .map((name) => name.toLowerCase())
+      .filter(Boolean);
+    const isExcluded = (entry) => excluded.some((name) => entry.text.toLowerCase().includes(name));
     const deadline = Date.now() + (timeout ?? this.timeouts.generationMs);
     const settleMs = expected > 1 ? 15000 : 6000;
 
@@ -804,9 +884,13 @@ export class FlowDriver {
       const snapshot = await this.snapshotAssets();
       if (snapshot.entries.length > 0) latest = snapshot;
 
-      // New non-upload tiles are candidates; only ones with a real image are results.
-      const fresh = latest.entries.filter((entry) => !beforeKeys.has(entry.key) && !entry.uploaded);
-      added = fresh.filter((entry) => entry.hasImage);
+      // New, non-upload tiles that carry a real image are candidates. Prefer ones
+      // offering "redo", which only generated results do.
+      const fresh = latest.entries.filter(
+        (entry) => !beforeKeys.has(entry.key) && !entry.uploaded && !isExcluded(entry),
+      );
+      const withRedo = fresh.filter((entry) => entry.hasImage && entry.canRedo);
+      added = withRedo.length > 0 ? withRedo : fresh.filter((entry) => entry.hasImage);
 
       // A refused generation shows up as a new tile, not as a new image.
       const refusal = fresh.find((entry) => entry.failed) ?? null;

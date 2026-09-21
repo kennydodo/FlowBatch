@@ -29,6 +29,7 @@
     "aspectRatio": "16:9",
     "outputs": 1,
     "refMode": "reuse",
+    "maxPromptChars": 2420,
     "resetBetweenItems": "reload",
     "reapplySettingsAfterReset": true,
     "retries": 1,

@@ -36,6 +36,7 @@ const KNOWN_DEFAULTS = new Set([
   'promptPrefix',
   'promptSuffix',
   'stylePosition',
+  'maxPromptChars',
 ]);
 
 function warnUnknownKeys(source, known, label, warnings) {
@@ -324,6 +325,26 @@ export function loadJob(jobPath, { settings, repairEncoding = false } = {}) {
   });
 
   const outputsDir = fromRoot(raw.outputsDir ?? path.join('output', name));
+
+  // Flow refuses over-long prompts with the same generic "unusual activity"
+  // message it uses for rate limiting, which makes the two easy to confuse.
+  // Measured boundary: 2427 characters succeeded and 2510 was refused three
+  // times, with identical references and in the same sessions. The prompt box
+  // itself accepts 5000+, so the limit is server-side.
+  const maxPromptChars = Number(
+    defaults.maxPromptChars ?? settings?.generation?.maxPromptChars ?? 2420,
+  );
+  const overLimit = items.filter((item) => item.prompt.length > maxPromptChars);
+  if (overLimit.length > 0) {
+    const longest = Math.max(...overLimit.map((item) => item.prompt.length));
+    warnings.push(
+      `${overLimit.length} of ${items.length} prompts exceed ${maxPromptChars} characters ` +
+        `(longest ${longest}) and will be refused by Flow as "unusual activity".` +
+        (style ? ` The job-wide "style" contributes ${style.length} characters to every prompt.` : '') +
+        ` Shorten: ${overLimit.slice(0, 5).map((item) => item.outputName).join(', ')}` +
+        `${overLimit.length > 5 ? `, +${overLimit.length - 5} more` : ''}`,
+    );
+  }
 
   if (repairedCount > 0) {
     log.info(`Repaired mojibake in ${repairedCount} of ${items.length} prompts.`);
