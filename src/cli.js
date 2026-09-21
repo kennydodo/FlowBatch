@@ -8,6 +8,7 @@ import { doctorCommand } from '../commands/doctor.js';
 import { generateCommand } from '../commands/generate.js';
 import { serveCommand } from '../commands/serve.js';
 import { repairCommand } from '../commands/repair.js';
+import { upscaleCommand } from '../commands/upscale.js';
 
 const COMMANDS = {
   login: {
@@ -40,6 +41,11 @@ const COMMANDS = {
     valueFlags: ['job'],
     summary: 'Fix a job JSON in place: strip a UTF-8 BOM and repair mojibake text.',
   },
+  upscale: {
+    run: upscaleCommand,
+    valueFlags: ['scale', 'model', 'out', 'set-scale'],
+    summary: 'Upscale PNGs 1x/2x/3x/4x on the GPU (Real-ESRGAN), falling back to CPU.',
+  },
 };
 
 const GLOBAL_VALUE_FLAGS = ['log-level'];
@@ -57,6 +63,7 @@ Commands
   generate   ${COMMANDS.generate.summary}
   serve      ${COMMANDS.serve.summary}
   repair     ${COMMANDS.repair.summary}
+  upscale    ${COMMANDS.upscale.summary}
 
 login options
   --confirm             Wait for Enter before closing, so you can finish Google verification
@@ -74,6 +81,14 @@ discover options
 doctor options
   --live                Resolve every selector against the live page (needs a signed-in profile)
   --project-url <url>   Project to check against; prompt-box controls only exist inside a project
+
+upscale options
+  --scale <1|2|3|4>     Upscale factor; 1 is a pass-through (default: from config)
+  --model <name>        realesr-animevideov3 | realesrgan-x4plus | realesrgan-x4plus-anime
+  --out <dir>           Write results here instead of beside each input
+  --set-scale <1|2|3|4> Remember this level as the default and exit
+  --save                Also remember --scale / --model as the default
+  With no arguments, prints the engine, device and current settings.
 
 repair options
   --job <file>          Job JSON to repair (or pass it as the first argument)

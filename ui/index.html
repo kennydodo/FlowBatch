@@ -157,6 +157,17 @@
         </div>
 
         <div class="field">
+          <label for="upscale">Upscale level</label>
+          <select id="upscale">
+            <option value="1">1x — no upscale (keep ~720p)</option>
+            <option value="2">2x — 1440p (2K)</option>
+            <option value="3">3x — 2160p (4K)</option>
+            <option value="4">4x — 2880p</option>
+          </select>
+          <div class="hint" id="upscaleHint">Saved as you change it.</div>
+        </div>
+
+        <div class="field">
           <label class="check">
             <input type="checkbox" id="dryRun" />
             Dry run — print the plan without generating
@@ -307,6 +318,38 @@
         autoScroll = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 40;
       });
 
+      function renderUpscale(info) {
+        $('upscale').value = String(info.scale);
+        const device = info.engineAvailable
+          ? info.deviceName || 'device detected on first use'
+          : 'engine not installed — CPU only';
+        $('upscaleHint').textContent = `${info.model} · ${device} · remembered between runs`;
+      }
+
+      async function loadUpscale() {
+        try {
+          const res = await fetch('/api/upscale');
+          renderUpscale(await res.json());
+        } catch (error) {
+          $('upscaleHint').textContent = 'Could not read upscale settings.';
+        }
+      }
+
+      $('upscale').addEventListener('change', async (event) => {
+        try {
+          const res = await fetch('/api/upscale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scale: Number(event.target.value) }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || res.statusText);
+          renderUpscale(data);
+        } catch (error) {
+          appendLine('Could not save the upscale level: ' + error.message, 'stderr');
+        }
+      });
+
       function connect() {
         const events = new EventSource('/api/events');
         events.onmessage = (event) => {
@@ -332,6 +375,7 @@
       }
 
       loadJobs();
+      loadUpscale();
       fetch('/api/status')
         .then((res) => res.json())
         .then((status) => setRunning(status.running, status))

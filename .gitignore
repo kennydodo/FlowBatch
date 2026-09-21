@@ -15,6 +15,11 @@ discover/
 # Local overrides
 config/settings.local.json
 config/selectors.local.json
+config/upscale.local.json
+
+# Upscaler engine scratch state
+tools/realesrgan/device_cache.json
+tools/realesrgan/_probe*.png
 
 # User media
 refs/*

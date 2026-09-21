@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { ROOT, fromRoot } from './lib/paths.js';
 import { readJson } from './lib/json.js';
 import { log } from './lib/log.js';
+import { describeUpscaler, normalizeScale, saveUpscaleSettings } from './upscale/index.js';
 
 const UI_DIR = path.join(ROOT, 'ui');
 const CLI = path.join(ROOT, 'src', 'cli.js');
@@ -316,6 +317,26 @@ async function handle(req, res) {
       sendJson(res, 200, status);
     } catch (error) {
       logLine('stderr', `Start rejected: ${error.message}`);
+      sendJson(res, 400, { error: String(error.message) });
+    }
+    return;
+  }
+
+  if (route === 'GET /api/upscale') {
+    sendJson(res, 200, describeUpscaler());
+    return;
+  }
+
+  if (route === 'POST /api/upscale') {
+    try {
+      const body = await readBody(req);
+      const patch = {};
+      if (body.scale !== undefined) patch.scale = normalizeScale(body.scale);
+      if (body.model !== undefined) patch.model = String(body.model);
+      const saved = saveUpscaleSettings(patch);
+      logLine('meta', `Upscale level set to ${saved.scale}x (${saved.model}).`);
+      sendJson(res, 200, describeUpscaler());
+    } catch (error) {
       sendJson(res, 400, { error: String(error.message) });
     }
     return;

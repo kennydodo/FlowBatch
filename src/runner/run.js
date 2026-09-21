@@ -7,6 +7,7 @@ import { ROOT } from '../lib/paths.js';
 import { sleep } from '../lib/time.js';
 import { GenerationError } from '../lib/errors.js';
 import { sniffImageExtension } from '../lib/image.js';
+import { engineLabel, loadUpscaleSettings, upscaleImage } from '../upscale/index.js';
 import { STATUS } from './state.js';
 
 function resolveGenSettings(item, settings) {
@@ -43,9 +44,13 @@ async function pauseForInspection(message) {
 }
 
 export function printPlan(job, items, settings) {
+  const upscale = loadUpscaleSettings();
   log.heading(`Plan for job "${job.name}"`);
   log.raw(`  project     : ${job.project ?? '(new project each run)'}`);
   log.raw(`  outputs dir : ${path.relative(ROOT, job.outputsDir)}`);
+  log.raw(
+    `  upscale     : ${upscale.scale}x (${upscale.model})${upscale.scale > 1 ? '' : ' — disabled'}`,
+  );
   log.raw(`  items       : ${items.length}`);
   for (const item of items) {
     const gen = resolveGenSettings(item, settings);
@@ -102,6 +107,10 @@ export async function runJob({ job, driver, state, settings, options }) {
   if (!job.projectUrl) {
     await driver.ensureProject(job.project);
   }
+
+  const upscale = loadUpscaleSettings();
+  const upscaleEnabled = Number(upscale.scale) > 1;
+  if (upscaleEnabled) log.info(`Upscaling every result ${upscale.scale}x (${upscale.model}).`);
 
   const gen = settings.generation ?? {};
   const globalRetries = Number(gen.retries ?? 0);
@@ -221,6 +230,30 @@ export async function runJob({ job, driver, state, settings, options }) {
           fs.renameSync(tempPath, destPath);
           saved.push(destPath);
           log.ok(`Saved ${path.relative(ROOT, destPath)} (via ${download.method})`);
+
+          // Flow hands back roughly 720p. Upscale next to the original so the
+          // 720p master survives for a different level later.
+          if (upscaleEnabled) {
+            const upscaledPath = path.join(job.outputsDir, `${stem}_${upscale.scale}x.png`);
+            try {
+              const started = Date.now();
+              const upscaled = upscaleImage(destPath, upscaledPath, {
+                scale: upscale.scale,
+                model: upscale.model,
+                tile: upscale.tile,
+                cpuFallback: upscale.cpuFallback,
+                enginePath: upscale.enginePath,
+              });
+              saved.push(upscaledPath);
+              log.ok(
+                `Upscaled ${path.relative(ROOT, upscaledPath)} to ${upscaled.width}x${upscaled.height} ` +
+                  `via ${engineLabel(upscaled)} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
+              );
+            } catch (error) {
+              // The 720p still is already saved, so this must not fail the item.
+              log.warn(`Upscale failed for ${stem}: ${error.message}`);
+            }
+          }
         }
 
         state.update(item.id, { status: STATUS.done, files: saved, error: null });

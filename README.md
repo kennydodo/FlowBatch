@@ -258,6 +258,60 @@ Attaching an existing asset and uploading a new one behave differently; both wer
 A synthetic drag-and-drop onto the prompt box was also tried and is rejected by Flow, so the library
 is the only route — but for references already in the project it is a single click.
 
+## Upscaling
+
+Flow returns roughly 720p. Every result can be upscaled on the way out, at **1x, 2x, 3x or 4x**.
+
+| Level | 1280×720 becomes | Typical name |
+| --- | --- | --- |
+| 1x | 1280×720 (pass-through, byte-for-byte copy) | 720p |
+| 2x | 2560×1440 | 2K |
+| 3x | 3840×2160 | 4K |
+| 4x | 5120×2880 | 5K |
+
+**Default is 2x**, and the choice is remembered — the web UI writes it as you change it, and
+`upscale --set-scale <n>` does the same from the terminal. It is stored in
+`config/upscale.local.json` (gitignored) so a local choice never dirties the repo.
+
+### GPU first, CPU fallback
+
+1. **GPU** — Real-ESRGAN via ncnn + Vulkan (`tools/realesrgan/realesrgan-ncnn-vulkan.exe`).
+   Device indices 0–5 are probed once with a generated test image; NVIDIA is preferred, and the
+   working index is cached in `tools/realesrgan/device_cache.json`.
+2. **CPU** — Lanczos-3 resampling, implemented in `src/upscale/png.js`. No Pillow, no image
+   library, no build step.
+
+Every GPU result is **content-checked** against its input before being accepted. A driver fault or
+VRAM overrun makes the engine emit output that looks nothing like the source rather than an error,
+so a mismatch discards that device, clears the cache, and moves on. This is why the fallback exists
+even on a machine with a working GPU.
+
+### Where files land
+
+The batch pipeline writes both, so the 720p master survives for a later re-upscale:
+
+```
+output/<job>/S02_02_MET_ZO.png       720p master from Flow
+output/<job>/S02_02_MET_ZO_2x.png    upscaled
+```
+
+At 1x only the master is written. An upscale failure warns and keeps the master — it never fails
+the item.
+
+### Standalone use
+
+```powershell
+npm run upscale                                       # show engine, device and current level
+npm run upscale -- <file-or-folder> --scale 4         # upscale, writing <name>_4x.png
+npm run upscale -- <folder> --scale 2 --out D:\big    # write elsewhere
+npm run upscale -- --set-scale 3                      # remember 3x as the default
+```
+
+Input must be **PNG** — which is what the pipeline produces. The engine and its models are vendored
+in `tools/realesrgan/` (~10 MB); `README_windows.md` there carries the upstream attribution and
+licence. `realesr-animevideov3` is the default model because it ships native x2/x3/x4 and suits
+illustration; `realesrgan-x4plus` is x4-only and is downscaled for 2x and 3x.
+
 ## Web UI
 
 ```powershell
@@ -271,6 +325,7 @@ The page drives the same CLI as a child process — it is a front end, not a sec
 | --- | --- |
 | **Job JSON** | Dropdown of every job in `config/`, plus **Choose…** for any JSON file elsewhere. |
 | **Save images to** | Native folder picker. Empty uses the job's own `outputsDir`. Passed as `--output`. |
+| **Upscale level** | 1x–4x, default 2x. Saved immediately and remembered between runs. |
 | **Dry run** | Prints the plan and spends nothing. Worth ticking first. |
 | **Start Batch** | Spawns `generate`. Refused with a clear message if a batch is already running. |
 | **End Process** | Kills the whole process tree, so Playwright's Chrome does not survive the stop. |
@@ -295,6 +350,7 @@ Notes:
 | `generate` | Run a batch job. |
 | `serve` | Start the local web UI. |
 | `repair` | Fix a job JSON in place: strip a UTF-8 BOM and repair mojibake. |
+| `upscale` | Upscale PNGs 1x/2x/3x/4x on the GPU, with a CPU fallback. |
 
 `generate` options:
 

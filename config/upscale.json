@@ -1,0 +1,16 @@
+{
+  "_readme": [
+    "Upscaler defaults. Changes made in the web UI or with `upscale --save` are",
+    "written to config/upscale.local.json, which overrides this file and is",
+    "gitignored, so local choices survive restarts without dirtying the repo.",
+    "scale: 1 = no upscale (pass-through), 2 = default (720p -> 1440p / 2K), 3, 4.",
+    "model: realesr-animevideov3 ships native x2/x3/x4 and suits illustration;",
+    "realesrgan-x4plus / -anime are x4 only and are downscaled for 2x and 3x."
+  ],
+
+  "scale": 2,
+  "model": "realesr-animevideov3",
+  "tile": 256,
+  "cpuFallback": true,
+  "enginePath": null
+}

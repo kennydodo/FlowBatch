@@ -121,6 +121,31 @@ Output naming: `item.outputFile` is the **exact** `file` value from the job, ext
 the file is written under that name. Flow only exports JPEG, so a `.png` request is re-encoded with
 `FlowDriver.convertToPng`, which uses the browser's canvas — do not add an image library for this.
 
+## Upscaler
+
+`src/upscale/` is a port of the Renderly upscaler (the only component copied from that project,
+with explicit permission). Structure:
+
+- `png.js` — self-contained PNG codec (8-bit, non-interlaced) plus separable Lanczos-3 resampling.
+  There is deliberately **no image library dependency**; do not add one.
+- `engine.js` — Real-ESRGAN ncnn-Vulkan driver: device probing, cache, content validation.
+- `index.js` — orchestration and the persisted setting.
+- `tools/realesrgan/` — vendored engine (exe, its `vcomp140*.dll`, Vulkan ICD jsons, models,
+  upstream readme). Keep the attribution readme with the binaries.
+
+Rules that matter:
+
+1. **Every GPU result is content-checked** (`meanAbsoluteDeviation`) before it is accepted. A bad
+   device emits garbage, not an error. On mismatch: discard the device, clear the cache, continue.
+2. **Flatten to RGB before the engine.** Alpha-channel input corrupts the engine's output.
+3. Device choice is cached in `tools/realesrgan/device_cache.json` (gitignored) and re-probed hourly
+   when it says CPU, in case a GPU appears.
+4. The engine always runs at a scale the model actually ships (`MODEL_SCALES`); other scales run at
+   4x and are Lanczos-downscaled.
+5. Upscaling must never fail a batch item — the 720p master is already saved, so warn and continue.
+6. The setting persists to `config/upscale.local.json` (gitignored), never to the tracked
+   `config/upscale.json`. Comment keys starting with `_` must be stripped before API responses.
+
 ## Hard rules
 
 1. **Never hardcode a page selector in JavaScript.** Every selector belongs in
