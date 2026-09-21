@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { sleep, timestampSlug } from '../lib/time.js';
 import { ensureParent, slugify } from '../lib/paths.js';
+import { mimeForExtension, sniffImageExtension } from '../lib/image.js';
 import { log } from '../lib/log.js';
 import { GenerationError, TimeoutError } from '../lib/errors.js';
 import { SelectorSet } from './selectors.js';
@@ -876,6 +877,38 @@ export class FlowDriver {
     if (!response || !response.ok()) return null;
     const body = await response.body().catch(() => null);
     return body && body.length > 0 ? body : null;
+  }
+
+  /**
+   * Re-encode an image as PNG using the browser's own canvas, so no image library
+   * is needed. Flow only exports JPEG, but jobs routinely ask for .png.
+   * Returns false (leaving the caller to keep the original) on any failure.
+   */
+  async convertToPng(inputPath, outputPath) {
+    const bytes = fs.readFileSync(inputPath);
+    const mime = mimeForExtension(sniffImageExtension(inputPath));
+    const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
+
+    const base64 = await this.page
+      .evaluate(async (url) => {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        return canvas.toDataURL('image/png').split(',')[1] ?? '';
+      }, dataUrl)
+      .catch(() => '');
+
+    if (!base64) return false;
+    const png = Buffer.from(base64, 'base64');
+    // A valid PNG always starts with this signature.
+    if (png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return false;
+    fs.writeFileSync(outputPath, png);
+    return true;
   }
 
   // ------------------------------------------------------------------ debug

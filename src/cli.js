@@ -6,19 +6,19 @@ import { loginCommand } from '../commands/login.js';
 import { discoverCommand } from '../commands/discover.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { generateCommand } from '../commands/generate.js';
+import { serveCommand } from '../commands/serve.js';
+import { repairCommand } from '../commands/repair.js';
 
 const COMMANDS = {
   login: {
     run: loginCommand,
     valueFlags: ['channel', 'slowmo', 'url'],
     summary: 'Open the persistent browser profile so you can sign in to Google Flow once.',
-    extra: '  --confirm         Wait for Enter before closing, so you can finish Google verification',
   },
   discover: {
     run: discoverCommand,
     valueFlags: ['wait', 'navigate', 'channel', 'slowmo', 'url', 'click', 'dump', 'agent', 'upload'],
     summary: 'Dump the Flow DOM (testids, buttons, file inputs) to calibrate config/selectors.json.',
-    extra: '  --click <selector>   Click a selector before dumping (repeatable) to open popovers/menus',
   },
   doctor: {
     run: doctorCommand,
@@ -27,8 +27,18 @@ const COMMANDS = {
   },
   generate: {
     run: generateCommand,
-    valueFlags: ['job', 'only', 'limit', 'channel', 'slowmo', 'url'],
+    valueFlags: ['job', 'only', 'limit', 'output', 'project-url', 'channel', 'slowmo', 'url'],
     summary: 'Run a batch job: many prompts x reference images -> generated images.',
+  },
+  serve: {
+    run: serveCommand,
+    valueFlags: ['port', 'host'],
+    summary: 'Start the local web UI for running batches.',
+  },
+  repair: {
+    run: repairCommand,
+    valueFlags: ['job'],
+    summary: 'Fix a job JSON in place: strip a UTF-8 BOM and repair mojibake text.',
   },
 };
 
@@ -45,6 +55,8 @@ Commands
   discover   ${COMMANDS.discover.summary}
   doctor     ${COMMANDS.doctor.summary}
   generate   ${COMMANDS.generate.summary}
+  serve      ${COMMANDS.serve.summary}
+  repair     ${COMMANDS.repair.summary}
 
 login options
   --confirm             Wait for Enter before closing, so you can finish Google verification
@@ -63,6 +75,15 @@ doctor options
   --live                Resolve every selector against the live page (needs a signed-in profile)
   --project-url <url>   Project to check against; prompt-box controls only exist inside a project
 
+repair options
+  --job <file>          Job JSON to repair (or pass it as the first argument)
+  --dry-run             Show what would change without writing
+  --no-backup           Skip the .bak copy
+
+serve options
+  --port <n>            Port to listen on (default: 8787)
+  --host <addr>         Address to bind (default: 127.0.0.1)
+
 Common options
   --log-level <debug|info|warn|error>   Console verbosity (default: info)
   --no-color                            Disable coloured output
@@ -72,15 +93,22 @@ Common options
 
 generate options
   --job <file>          Job file to run (required)
+  --output <dir>        Write results here instead of the job's outputsDir
+  --project-url <url>   Override the job's projectUrl
   --only <id,id>        Run only these item ids
   --limit <n>           Run at most n items
   --no-resume           Re-run items already marked done in state/<job>.json
   --reset-state         Clear stored state before running
   --dry-run             Print the plan without launching a browser
+  --repair-encoding     Fix mojibake (UTF-8 saved as CP1252) in prompts before sending
   --fail-fast           Stop at the first failed item
   --pause-on-error      Keep the browser open and wait for Enter after a failure
   --no-dump-on-error    Do not write debug/ screenshots + HTML on failure
   --keep-open           Leave the browser open when the run finishes
+
+Web UI
+  npm run ui
+  then open http://127.0.0.1:8787
 
 Typical first run
   npm run login

@@ -12,7 +12,9 @@
     "discover": "node src/cli.js discover",
     "doctor": "node src/cli.js doctor",
     "generate": "node src/cli.js generate",
-    "gen": "node src/cli.js generate"
+    "gen": "node src/cli.js generate",
+    "ui": "node src/cli.js serve",
+    "repair": "node src/cli.js repair"
   },
   "dependencies": {
     "playwright": "^1.63.0"

@@ -175,10 +175,13 @@ export async function runJob({ job, driver, state, settings, options }) {
           const tileIndex = match ? match.index : entry.index;
           const selector = current.selector ?? outcome.selector;
 
-          // `outputName` comes from the job's `file` field; the extension is
-          // replaced with the real format after download.
-          const stem = outcome.added.length > 1 ? `${item.outputName}-${index + 1}` : item.outputName;
-          const tempPath = path.join(job.outputsDir, `${stem}.download`);
+          // The job's `file` field names the output exactly, extension included.
+          // Several results for one item get a numeric suffix before the extension.
+          const requested = item.outputFile ?? `${item.outputName}.png`;
+          const requestedExt = path.extname(requested).toLowerCase();
+          const requestedStem = path.basename(requested, path.extname(requested));
+          const stem = outcome.added.length > 1 ? `${requestedStem}-${index + 1}` : requestedStem;
+          let tempPath = path.join(job.outputsDir, `${stem}.download`);
 
           // The tile's signed CDN URL serves the full-resolution still and needs
           // no UI interaction, so try it first and fall back to the export menu.
@@ -196,8 +199,25 @@ export async function runJob({ job, driver, state, settings, options }) {
             );
           }
 
-          // Flow serves stills as JPEG, so name the file after what it really is.
-          const destPath = path.join(job.outputsDir, `${stem}${sniffImageExtension(tempPath)}`);
+          // Flow only exports JPEG. When the job asked for .png, re-encode it so
+          // the file's name and its contents agree.
+          const sourceExt = sniffImageExtension(tempPath);
+          let finalExt = sourceExt;
+          if (requestedExt === '.png' && sourceExt !== '.png') {
+            const pngPath = `${tempPath}.png`;
+            const converted = await driver.convertToPng(tempPath, pngPath).catch(() => false);
+            if (converted) {
+              fs.rmSync(tempPath, { force: true });
+              tempPath = pngPath;
+              finalExt = '.png';
+            } else {
+              log.warn(`Could not convert ${stem} to PNG; saving as ${sourceExt} instead.`);
+            }
+          } else if (requestedExt && requestedExt !== sourceExt) {
+            finalExt = sourceExt;
+          }
+
+          const destPath = path.join(job.outputsDir, `${stem}${finalExt}`);
           fs.renameSync(tempPath, destPath);
           saved.push(destPath);
           log.ok(`Saved ${path.relative(ROOT, destPath)} (via ${download.method})`);

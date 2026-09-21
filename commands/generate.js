@@ -5,6 +5,7 @@ import { RunState } from '../src/runner/state.js';
 import { printPlan, runJob, selectItems } from '../src/runner/run.js';
 import { intFlag, listFlag } from '../src/lib/args.js';
 import { log } from '../src/lib/log.js';
+import { fromRoot } from '../src/lib/paths.js';
 import { pauseForEnter } from '../src/lib/prompt.js';
 
 export async function generateCommand({ flags, context, positionals }) {
@@ -14,7 +15,15 @@ export async function generateCommand({ flags, context, positionals }) {
   }
 
   const { settings } = context;
-  const job = loadJob(jobPath, { settings });
+  const job = loadJob(jobPath, { settings, repairEncoding: flags['repair-encoding'] === true });
+
+  // Let the caller redirect results without editing the job file.
+  if (typeof flags.output === 'string' && flags.output.trim()) {
+    job.outputsDir = fromRoot(flags.output.trim());
+  }
+  if (typeof flags['project-url'] === 'string' && flags['project-url'].trim()) {
+    job.projectUrl = flags['project-url'].trim();
+  }
 
   const options = {
     only: listFlag(flags, 'only'),

@@ -4,6 +4,18 @@ import fs from 'node:fs';
  * Flow downloads stills as JPEG regardless of the prompt, so the extension is
  * sniffed from the file's magic bytes instead of being assumed.
  */
+const MIME_BY_EXTENSION = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+
+export function mimeForExtension(extension) {
+  return MIME_BY_EXTENSION[String(extension).toLowerCase()] ?? 'application/octet-stream';
+}
+
 export function sniffImageExtension(filePath) {
   let header;
   try {

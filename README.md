@@ -104,6 +104,8 @@ to generate:
     "BG_LIVING_ROOM_01": "E:/YOUTUBE/PERSONAL FINANCE/Refs/BG_LIVING_ROOM_01.png"
   },
 
+  "style": "Polished modern 2D editorial explainer illustration ... applied to every prompt",
+
   "defaults": {
     "mode": "image",
     "agent": false,
@@ -135,6 +137,37 @@ why `BG_LIVING_ROOM_01` would work even if it were omitted from the map.
 
 Local paths are **optional**. If a mapped file is missing, the job still loads; the tool simply
 cannot upload it, and says so if the name is also absent from the project.
+
+### `style`
+
+A top-level `style` string is applied to **every** prompt — the usual pattern for editorial shot
+lists where one art direction covers the whole batch. It is prepended by default; set
+`stylePosition: "suffix"` to append instead.
+
+### Unrecognised keys are reported, not ignored
+
+Any top-level or `defaults` key the loader does not understand produces a warning, and so does any
+extra array (an editorial `shots` list, for example). This is deliberate: a field that looks like it
+was applied but silently was not is worse than a noisy warning. If a job defines both `images` and
+`items`, the one that was used is named in the warning.
+
+### Encoding
+
+- A **UTF-8 BOM** at the start of the file is stripped automatically. Without that, `JSON.parse`
+  fails and the job looks corrupt when it is fine.
+- **Mojibake** — text saved as UTF-8 but read back as Windows-1252, so an em dash `—` becomes `â€”` —
+  is detected and reported with a count. Pass `--repair-encoding` to send corrected text at run time,
+  or fix the file itself with `npm run repair -- <file>`.
+
+### Repairing a job file
+
+```powershell
+npm run repair -- "<path to job.json>" --dry-run   # preview every change
+npm run repair -- "<path to job.json>"             # apply, writing a .bak backup first
+```
+
+`repair` strips a UTF-8 BOM and reverses mojibake in every string, preserving the file's existing
+indentation. It is idempotent — running it twice reports "Nothing to repair".
 
 ### Matrix (many prompts × many reference sets)
 
@@ -225,6 +258,33 @@ Attaching an existing asset and uploading a new one behave differently; both wer
 A synthetic drag-and-drop onto the prompt box was also tried and is rejected by Flow, so the library
 is the only route — but for references already in the project it is a single click.
 
+## Web UI
+
+```powershell
+npm run ui
+# then open http://127.0.0.1:8787
+```
+
+The page drives the same CLI as a child process — it is a front end, not a second implementation.
+
+| Control | What it does |
+| --- | --- |
+| **Job JSON** | Dropdown of every job in `config/`, plus **Choose…** for any JSON file elsewhere. |
+| **Save images to** | Native folder picker. Empty uses the job's own `outputsDir`. Passed as `--output`. |
+| **Dry run** | Prints the plan and spends nothing. Worth ticking first. |
+| **Start Batch** | Spawns `generate`. Refused with a clear message if a batch is already running. |
+| **End Process** | Kills the whole process tree, so Playwright's Chrome does not survive the stop. |
+| **Console** | Live stdout/stderr streamed over SSE, with the command line echoed at the top. |
+
+Notes:
+
+- The server binds to `127.0.0.1` only. Override with `--port` / `--host`.
+- Folder and file pickers are shown **by PowerShell on the desktop**, because a browser cannot hand a
+  real filesystem path to the server. A dialog appearing outside the browser window is expected.
+- The console keeps the last 3000 lines and replays them to a page that connects mid-run, so
+  refreshing does not lose the output.
+- Stopping a batch can leave the browser profile flagged; Chrome is terminated with the tree.
+
 ## CLI reference
 
 | Command | Purpose |
@@ -233,6 +293,8 @@ is the only route — but for references already in the project it is a single c
 | `discover` | Dump the Flow DOM to `discover/` to calibrate selectors. |
 | `doctor` | Check environment and config; with `--live`, resolve every selector. |
 | `generate` | Run a batch job. |
+| `serve` | Start the local web UI. |
+| `repair` | Fix a job JSON in place: strip a UTF-8 BOM and repair mojibake. |
 
 `generate` options:
 
@@ -257,10 +319,13 @@ Global: `--log-level <debug|info|warn|error>`, `--no-color`, `--channel <chrome|
 
 ## Outputs, state and resume
 
-- Generated stills: `output/<job>/<file stem>.<real extension>`. The stem comes from the item's
-  `file` (or `id`), but the **extension is sniffed from the actual bytes** — Flow exports JPEG, so a
-  job asking for `S01_01_HYB_PR.png` is written as `S01_01_HYB_PR.jpg`. Multiple outputs become
-  `<stem>-1.jpg`, `<stem>-2.jpg`.
+- Generated stills are saved under **exactly the name in the item's `file`**, for example
+  `output/<job>/S02_02_MET_ZO.png`.
+- Flow only exports **JPEG**. When `file` asks for `.png`, the still is re-encoded to a real PNG
+  using the browser's own canvas — no image library is required — so the name and the contents agree.
+  If that conversion fails the file is written with its true extension and a warning is logged.
+- Multiple results for one item become `<stem>-2.png`, `<stem>-3.png`.
+- If an item has no `file`, the output is `<id>.png`.
 - Progress: `state/<job>.json`, written after every item. Re-running a job skips completed items;
   use `--no-resume` or `--reset-state` to force a re-run.
 - Failure captures: `debug/error-<item-id>-<timestamp>.png` and `.html`.

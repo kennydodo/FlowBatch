@@ -46,8 +46,16 @@ src/flow/driver.js      FlowDriver: every Google Flow interaction lives here
 src/jobs/load.js        job file validation and matrix expansion -> flat item list
 src/runner/state.js     per-item progress persistence for --resume
 src/runner/run.js       batch orchestration, retries, downloads, summary
+src/server.js           local HTTP + SSE server that spawns the CLI for the web UI
+commands/serve.js       `serve` command; keeps the process alive
+ui/index.html           the whole UI: one self-contained file, no build step
 config/                 settings.json, selectors.json, example job files
 ```
+
+The UI is deliberately a thin shell over the CLI: `src/server.js` spawns
+`node src/cli.js generate …` and streams its stdout/stderr. It must not grow a second copy of the
+generation logic. Native folder/file pickers run through PowerShell because a browser cannot expose a
+real filesystem path to the server.
 
 ## Verified Google Flow facts (2026-09-21)
 
@@ -99,6 +107,19 @@ as **names**). `items` (with `id`) and `matrix` are also accepted, as is a legac
 paths. Item `refs` resolve through the top-level map; a name that is not in the map is treated as an
 existing project asset. Missing local files are a warning, never an error — attach-by-name still
 works. `item.outputName` comes from `file`; the final extension is always sniffed from the bytes.
+
+A top-level `style` string is applied to every prompt (`stylePosition: "prefix" | "suffix"`).
+Unrecognised top-level and `defaults` keys, and extra arrays such as an editorial `shots` list, must
+produce a **warning** — never be dropped silently.
+
+Real-world files need two encoding defences, both in place: strip a leading UTF-8 **BOM** in
+`readJson` (else `JSON.parse` throws), and detect **mojibake** (UTF-8 read as CP1252, `—` → `â€”`)
+via `src/lib/text.js`, warning with a count and offering `--repair-encoding` / `repairEncoding: true`.
+`commands/repair.js` fixes the file itself (BOM + mojibake, `.bak` backup, idempotent).
+
+Output naming: `item.outputFile` is the **exact** `file` value from the job, extension included, and
+the file is written under that name. Flow only exports JPEG, so a `.png` request is re-encoded with
+`FlowDriver.convertToPng`, which uses the browser's canvas — do not add an image library for this.
 
 ## Hard rules
 

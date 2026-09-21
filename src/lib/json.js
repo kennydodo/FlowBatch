@@ -6,7 +6,9 @@ export function readJson(filePath, { required = true } = {}) {
     if (required) throw new Error(`File not found: ${filePath}`);
     return null;
   }
-  const raw = fs.readFileSync(filePath, 'utf8');
+  // Editors on Windows commonly save JSON with a UTF-8 BOM, which JSON.parse
+  // rejects outright. Strip it before parsing.
+  const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
   try {
     return JSON.parse(raw);
   } catch (error) {

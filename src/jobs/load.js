@@ -5,6 +5,45 @@ import { readJson } from '../lib/json.js';
 import { ConfigError } from '../lib/errors.js';
 import { log } from '../lib/log.js';
 import { ROOT, fromRoot, slugify } from '../lib/paths.js';
+import { countMojibake, repairMojibake } from '../lib/text.js';
+
+const KNOWN_TOP_LEVEL = new Set([
+  'name',
+  'project',
+  'projectUrl',
+  'outputsDir',
+  'refMode',
+  'refs',
+  'defaults',
+  'style',
+  'stylePosition',
+  'repairEncoding',
+  'images',
+  'items',
+  'matrix',
+]);
+
+const KNOWN_DEFAULTS = new Set([
+  'mode',
+  'agent',
+  'model',
+  'aspectRatio',
+  'outputs',
+  'refs',
+  'refMode',
+  'retries',
+  'timeoutMs',
+  'promptPrefix',
+  'promptSuffix',
+  'stylePosition',
+]);
+
+function warnUnknownKeys(source, known, label, warnings) {
+  for (const key of Object.keys(source ?? {})) {
+    if (key.startsWith('_')) continue;
+    if (!known.has(key)) warnings.push(`${label}: unrecognised key "${key}" is ignored.`);
+  }
+}
 
 const MODES = new Set(['image', 'video']);
 const REF_MODES = new Set(['reuse', 'upload', 'assets', 'mention']);
@@ -155,7 +194,7 @@ function expandMatrix(matrix, defaults, refMap, jobDir, warnings) {
  *
  * Accepted item containers, in order of preference: `images`, `items`, `matrix`.
  */
-export function loadJob(jobPath, { settings } = {}) {
+export function loadJob(jobPath, { settings, repairEncoding = false } = {}) {
   const absoluteJobPath = fromRoot(jobPath);
   if (!absoluteJobPath || !fs.existsSync(absoluteJobPath)) {
     throw new ConfigError(`Job file not found: ${jobPath}`);
@@ -170,6 +209,36 @@ export function loadJob(jobPath, { settings } = {}) {
   const name = slugify(raw.name ?? path.basename(absoluteJobPath, '.json'), 'job');
   const defaults = raw.defaults ?? {};
   const warnings = [];
+
+  warnUnknownKeys(raw, KNOWN_TOP_LEVEL, 'job', warnings);
+  warnUnknownKeys(defaults, KNOWN_DEFAULTS, 'defaults', warnings);
+
+  // Report extra arrays (e.g. an editorial "shots" list) rather than silently
+  // dropping them, so nobody assumes a field was applied when it was not.
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.startsWith('_')) continue;
+    if (!Array.isArray(value)) continue;
+    if (['images', 'items', 'matrix', 'refs'].includes(key)) continue;
+    warnings.push(`top-level "${key}" (${value.length} entries) is not a generation list and was ignored.`);
+  }
+
+  const containers = ['images', 'items', 'matrix'].filter((key) => raw[key] !== undefined);
+  if (containers.length > 1) {
+    warnings.push(`job defines ${containers.map((k) => `"${k}"`).join(' and ')}; using "${containers[0]}".`);
+  }
+
+  // A job-wide style directive (very common in editorial shot lists) is applied
+  // to every prompt.
+  const style = typeof raw.style === 'string' ? raw.style.trim() : '';
+  const stylePosition = raw.stylePosition ?? defaults.stylePosition ?? 'prefix';
+  if (stylePosition !== 'prefix' && stylePosition !== 'suffix') {
+    throw new ConfigError(`stylePosition must be "prefix" or "suffix", got "${stylePosition}".`);
+  }
+  const applyStyle = (text) => {
+    if (!style) return text;
+    return stylePosition === 'suffix' ? `${text} ${style}` : `${style} ${text}`;
+  };
+
   const refMap = buildRefMap(raw.refs, jobDir, warnings);
   if (defaults.refs !== undefined) {
     for (const ref of normalizeRefs(defaults.refs, refMap, jobDir, 'defaults.refs', warnings)) {
@@ -189,6 +258,7 @@ export function loadJob(jobPath, { settings } = {}) {
   }
 
   const seen = new Set();
+  let repairedCount = 0;
   const items = rawItems.map((item, index) => {
     if (!item || typeof item !== 'object') {
       throw new ConfigError(`Item ${index + 1} in ${jobPath} must be an object.`);
@@ -228,11 +298,18 @@ export function loadJob(jobPath, { settings } = {}) {
     const prefix = item.promptPrefix ?? defaults.promptPrefix ?? '';
     const suffix = item.promptSuffix ?? defaults.promptSuffix ?? '';
 
+    const styled = applyStyle(`${prefix}${prompt}${suffix}`);
+    const shouldRepair = repairEncoding || raw.repairEncoding === true;
+    const finalPrompt = shouldRepair ? repairMojibake(styled) : styled;
+    if (shouldRepair && finalPrompt !== styled) repairedCount += 1;
+
     return {
       id,
       index,
+      // The exact filename the job asked for, extension included.
+      outputFile: item.file ? path.basename(String(item.file)) : null,
       outputName: fileStem ?? id,
-      prompt: `${prefix}${prompt}${suffix}`,
+      prompt: finalPrompt,
       refs,
       refNames: refs.map((ref) => ref.name),
       refPaths: refs.filter((ref) => ref.path).map((ref) => ref.path),
@@ -247,6 +324,20 @@ export function loadJob(jobPath, { settings } = {}) {
   });
 
   const outputsDir = fromRoot(raw.outputsDir ?? path.join('output', name));
+
+  if (repairedCount > 0) {
+    log.info(`Repaired mojibake in ${repairedCount} of ${items.length} prompts.`);
+  } else {
+    const broken = countMojibake(items.map((item) => item.prompt));
+    if (broken > 0) {
+      warnings.push(
+        `${broken} of ${items.length} prompts contain mojibake (for example "\u00e2\u20ac\u201d" where "\u2014" was ` +
+          'intended), which means the JSON was saved with the wrong text encoding. Re-run with ' +
+          '--repair-encoding to send corrected text, or re-export the JSON as UTF-8.',
+      );
+    }
+  }
+
   for (const warning of [...new Set(warnings)]) log.warn(warning);
 
   return {
@@ -256,6 +347,8 @@ export function loadJob(jobPath, { settings } = {}) {
     projectUrl: raw.projectUrl ?? settings?.projectUrl ?? null,
     outputsDir,
     refMode: raw.refMode ?? defaults.refMode ?? null,
+    style,
+    stylePosition,
     refMap,
     defaults,
     items,
