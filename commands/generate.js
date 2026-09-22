@@ -33,13 +33,30 @@ export async function generateCommand({ flags, context, positionals }) {
     failFast: flags['fail-fast'] === true,
     pauseOnError: flags['pause-on-error'] === true,
     dumpOnError: flags['dump-on-error'] !== false,
+    cooldownSeconds: flags.cooldown === undefined ? undefined : intFlag(flags, 'cooldown', 180),
+    maxCooldowns: flags['max-cooldowns'] === undefined ? undefined : intFlag(flags, 'max-cooldowns', 10),
   };
 
   const state = RunState.open(RunState.pathFor(settings.dirs.stateDir, job.name), {
     jobName: job.name,
     jobPath: job.jobPath,
     items: job.items,
+    projectUrl: job.projectUrl,
   });
+
+  if (state.projectChanged) {
+    log.warn(
+      'The Flow project changed since the last run, so the recorded progress does not apply to it. ' +
+        `Every item will run again in ${state.projectChanged.to}`,
+    );
+    state.save();
+  }
+
+  const stale = state.clearStaleRunning();
+  if (stale.length > 0) {
+    log.info(`Reset ${stale.length} item(s) left mid-run by an interrupted batch: ${stale.join(', ')}`);
+    state.save();
+  }
 
   if (flags['reset-state'] === true) {
     state.reset(job.items.map((item) => item.id));

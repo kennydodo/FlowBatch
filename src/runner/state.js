@@ -16,15 +16,20 @@ export const STATUS = {
  * Per-job progress that survives restarts, so `--resume` can skip finished work.
  */
 export class RunState {
-  constructor(filePath, { jobName, jobPath, items }) {
+  constructor(filePath, { jobName, jobPath, items, projectUrl = null }) {
     this.filePath = filePath;
     this.data = {
       jobName,
       jobPath,
+      // Recorded so a switch of Flow project can be detected: progress belongs to
+      // a project, not just to a job file.
+      projectUrl: projectUrl ?? null,
       createdAt: nowIso(),
       updatedAt: nowIso(),
       items: {},
     };
+    /** Set by `open` when the job points at a different Flow project. */
+    this.projectChanged = null;
     for (const item of items) {
       this.data.items[item.id] = {
         status: STATUS.pending,
@@ -39,15 +44,38 @@ export class RunState {
   static open(filePath, meta) {
     const state = new RunState(filePath, meta);
     const existing = readJson(filePath, { required: false });
-    if (existing && existing.jobName === meta.jobName) {
-      state.data.createdAt = existing.createdAt ?? state.data.createdAt;
-      for (const [id, entry] of Object.entries(existing.items ?? {})) {
-        if (id in state.data.items) {
-          state.data.items[id] = { ...state.data.items[id], ...entry };
-        }
+    if (!existing || existing.jobName !== meta.jobName) return state;
+
+    // A different Flow project means the recorded progress is for images that
+    // live somewhere else, so it must not be treated as already done.
+    if (meta.projectUrl && existing.projectUrl && existing.projectUrl !== meta.projectUrl) {
+      state.projectChanged = { from: existing.projectUrl, to: meta.projectUrl };
+      return state;
+    }
+
+    state.data.createdAt = existing.createdAt ?? state.data.createdAt;
+    for (const [id, entry] of Object.entries(existing.items ?? {})) {
+      if (id in state.data.items) {
+        state.data.items[id] = { ...state.data.items[id], ...entry };
       }
     }
     return state;
+  }
+
+  /**
+   * An item left `running` can only mean the previous run was killed, since
+   * nothing else writes that status. Put it back to pending so the summary is
+   * honest and it is clearly still to do.
+   */
+  clearStaleRunning() {
+    const stale = [];
+    for (const [id, entry] of Object.entries(this.data.items)) {
+      if (entry.status === STATUS.running) {
+        stale.push(id);
+        Object.assign(entry, { status: STATUS.pending, error: null, updatedAt: nowIso() });
+      }
+    }
+    return stale;
   }
 
   get(id) {

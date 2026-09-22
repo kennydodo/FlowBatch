@@ -108,8 +108,14 @@ These were established by probing the live signed-in UI. Do not "fix" them from 
 - A cookie consent bar overlays the prompt-box controls and swallows clicks; `dismissConsent()` must
   run after every navigation.
 - The landing page redirects into the last project only after ~15s. Prefer `projectUrl`.
-- Google throttles automated runs with *"We noticed some unusual activity"* inside the tile. It is
-  detected and treated as non-retryable so the batch stops instead of making it worse.
+- Google throttles automated runs with *"We noticed some unusual activity"* inside the tile. Two
+  wordings appear and they are worth reading: *"Please wait a few moments before retrying"* is an
+  explicit rate limit, while *"Please visit the Help Center ... You have not been charged"* appears
+  for both rate limits and over-long prompts. A rate limit is handled by waiting
+  `generation.cooldownSeconds` (default 180) and retrying the same item, up to `maxCooldowns`
+  (default 10) consecutive waits; the counter resets on success. An item whose prompt exceeds
+  `maxPromptChars` is skipped instead, because waiting cannot fix it. Observed tolerance after heavy
+  use is as low as **3 generations** between refusals.
 - **The same "unusual activity" message also means the prompt is too long.** Measured boundary: 2427
   characters accepted, 2510 refused three times with identical references in the same sessions. The
   ceiling is ~2450 characters for the **combined** prompt (job-wide `style` + item `prompt`), and it

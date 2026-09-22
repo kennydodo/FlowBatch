@@ -28,7 +28,18 @@ const COMMANDS = {
   },
   generate: {
     run: generateCommand,
-    valueFlags: ['job', 'only', 'limit', 'output', 'project-url', 'channel', 'slowmo', 'url'],
+    valueFlags: [
+      'job',
+      'only',
+      'limit',
+      'output',
+      'project-url',
+      'cooldown',
+      'max-cooldowns',
+      'channel',
+      'slowmo',
+      'url',
+    ],
     summary: 'Run a batch job: many prompts x reference images -> generated images.',
   },
   serve: {
@@ -118,6 +129,8 @@ generate options
   --reset-state         Clear stored state before running
   --dry-run             Print the plan without launching a browser
   --repair-encoding     Fix mojibake (UTF-8 saved as CP1252) in prompts before sending
+  --cooldown <seconds>  Wait this long after a rate-limit refusal, then retry (default: 180)
+  --max-cooldowns <n>   Give up after this many consecutive waits (default: 10)
   --fail-fast           Stop at the first failed item
   --pause-on-error      Keep the browser open and wait for Enter after a failure
   --no-dump-on-error    Do not write debug/ screenshots + HTML on failure

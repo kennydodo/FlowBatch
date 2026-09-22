@@ -30,6 +30,8 @@
     "outputs": 1,
     "refMode": "reuse",
     "maxPromptChars": 2420,
+    "cooldownSeconds": 180,
+    "maxCooldowns": 10,
     "resetBetweenItems": "reload",
     "reapplySettingsAfterReset": true,
     "retries": 1,

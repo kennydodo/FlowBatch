@@ -46,7 +46,7 @@ async function pauseForInspection(message) {
 export function printPlan(job, items, settings) {
   const upscale = loadUpscaleSettings();
   log.heading(`Plan for job "${job.name}"`);
-  log.raw(`  project     : ${job.project ?? '(new project each run)'}`);
+  log.raw(`  project     : ${job.projectUrl ?? job.project ?? '(new project each run)'}`);
   log.raw(`  outputs dir : ${path.relative(ROOT, job.outputsDir)}`);
   log.raw(
     `  upscale     : ${upscale.tier === 'off' ? 'off' : `${upscale.tier.toUpperCase()} via ${upscale.model}`}` +
@@ -114,6 +114,11 @@ export async function runJob({ job, driver, state, settings, options }) {
   if (upscaleEnabled) log.info(`Upscaling every result to ${upscale.tier.toUpperCase()} (${upscale.model}).`);
 
   const gen = settings.generation ?? {};
+  const cooldownMs = Number(options.cooldownSeconds ?? gen.cooldownSeconds ?? 180) * 1000;
+  const maxCooldowns = Number(options.maxCooldowns ?? gen.maxCooldowns ?? 10);
+  const maxPromptChars = Number(gen.maxPromptChars ?? 2420);
+  // Consecutive rate-limit waits; reset whenever an item succeeds.
+  let cooldownsUsed = 0;
   const globalRetries = Number(gen.retries ?? 0);
   const retryDelayMs = Number(gen.retryDelayMs ?? 5000);
   const delayBetweenItemsMs = Number(gen.delayBetweenItemsMs ?? 0);
@@ -263,6 +268,7 @@ export async function runJob({ job, driver, state, settings, options }) {
         state.save();
         succeeded = true;
         ok += 1;
+        cooldownsUsed = 0;
         results.push({ id: item.id, status: STATUS.done, files: saved });
       } catch (error) {
         lastError = error;
@@ -274,10 +280,38 @@ export async function runJob({ job, driver, state, settings, options }) {
           if (dump) log.info(`Debug capture: ${path.relative(ROOT, dump.screenshot)}`);
         }
 
-        // Refusals that Flow will keep refusing (throttling, policy blocks) must
-        // not be retried, and must stop the batch rather than make it worse.
         if (error.retryable === false) {
-          log.error('This failure is not retryable; stopping the batch after this item.');
+          const rateLimited = /unusual activity|wait a few moments/i.test(message);
+
+          // An over-long prompt is refused with the same wording, but waiting
+          // will never fix it, so that item is skipped instead of cooling down.
+          if (item.prompt.length > maxPromptChars) {
+            log.error(
+              `"${item.id}" has a ${item.prompt.length}-character prompt (limit ${maxPromptChars}); ` +
+                'skipping it rather than waiting.',
+            );
+            break;
+          }
+
+          // A rate limit is temporary: pause and try the same item again rather
+          // than abandoning the remaining items.
+          if (rateLimited && cooldownsUsed < maxCooldowns) {
+            cooldownsUsed += 1;
+            log.warn(
+              `Flow is rate limiting. Waiting ${Math.round(cooldownMs / 1000)}s, then retrying ` +
+                `"${item.id}" (cooldown ${cooldownsUsed}/${maxCooldowns}).`,
+            );
+            await sleep(cooldownMs);
+            // A cooldown is not a failed attempt, so do not spend the retry budget.
+            attempt -= 1;
+            continue;
+          }
+
+          if (rateLimited) {
+            log.error(`Still rate limited after ${maxCooldowns} cooldowns; stopping the batch.`);
+          } else {
+            log.error('This failure is not retryable; stopping the batch after this item.');
+          }
           aborted = true;
           break;
         }

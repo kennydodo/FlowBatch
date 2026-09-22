@@ -432,13 +432,29 @@ We noticed some unusual activity. Please visit the Help Center for more informat
 You have not been charged for this generation.
 ```
 
-The runner reports this verbatim, marks it **not retryable**, and stops the batch so it does not
-make things worse. Remaining items stay `pending` and will be picked up on the next run.
+A rate limit is temporary, so the runner **waits and retries the same item** rather than abandoning
+the rest of the batch:
 
-Mitigations, in order of effect:
+```
+Flow is rate limiting. Waiting 180s, then retrying "S02_01_HOST_ZI" (cooldown 1/10).
+```
 
-1. Wait — the throttle is time-based and lifts on its own.
-2. Raise `generation.delayBetweenItemsMs` (default 20000) so generations are spaced out.
+It waits `generation.cooldownSeconds` (default **180**), retries the item from scratch, and resets
+the counter whenever an item succeeds. After `generation.maxCooldowns` consecutive waits (default
+**10**) it gives up and stops the batch, leaving the rest `pending`.
+
+```powershell
+npm run generate -- --job "<job>" --cooldown 300 --max-cooldowns 20
+```
+
+An over-long prompt is refused with the same wording but waiting never fixes it, so that item is
+**skipped** and the batch continues instead.
+
+Other mitigations, in order of effect:
+
+1. Raise `generation.delayBetweenItemsMs` (default 20000) so generations are spaced out and the
+   limit is hit less often.
+2. Raise `--cooldown` if a single wait is not enough to clear it.
 3. Keep batches small and avoid repeated back-to-back runs.
 4. Use `--limit` to run a few items at a time.
 
@@ -500,9 +516,9 @@ Set it in `config/settings.json`, or per job in `defaults`:
 This is a warning threshold, not an enforced truncation — nothing is ever silently cut from a
 prompt. Lower it to leave headroom.
 
-> A refusal is currently treated as **non-retryable and stops the batch**, so an over-long prompt
-> does not just fail its own item — it ends the run, leaving the rest `pending`. Trim the offending
-> prompts before starting.
+An over-long prompt is refused with the same wording as a rate limit, but it is distinguished by
+length: if the item's prompt exceeds `maxPromptChars` the item is **skipped** and the batch
+continues, rather than waiting for something that will never succeed.
 
 ## Calibrating selectors
 
@@ -553,8 +569,9 @@ From Google's own Flow guidance:
   maintenance.
 - Generation is sequential, and Google throttles rapid automated runs.
 - **Combined prompts (style + scene) must stay under roughly 2450 characters.** Over-long prompts are
-  refused with the same message as throttling, and currently stop the batch rather than skipping the
-  item.
-- A refusal ends the run; remaining items stay `pending` and resume on the next attempt.
+  refused with the same message as throttling; they are detected by length and skipped.
+- Rate limits are waited out automatically, so a long batch can take hours. It is bounded by
+  `maxCooldowns`; if that is exhausted the run stops and the rest stay `pending`.
+- The observed tolerance is low — as few as **3 generations** between refusals after heavy use.
 - Automating a Google product may conflict with its terms of service. Use your own account, keep
   volumes reasonable, and review Flow's terms before running large batches.
