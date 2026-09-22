@@ -99,6 +99,7 @@ repair options
 serve options
   --port <n>            Port to listen on (default: 8787)
   --host <addr>         Address to bind (default: 127.0.0.1)
+  --open                Open the UI in your default browser once it is listening
 
 Common options
   --log-level <debug|info|warn|error>   Console verbosity (default: info)

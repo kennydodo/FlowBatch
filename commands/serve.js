@@ -6,7 +6,7 @@ export async function serveCommand({ flags }) {
   const port = intFlag(flags, 'port', 8787);
   const host = typeof flags.host === 'string' ? flags.host : '127.0.0.1';
 
-  startServer({ port, host });
+  startServer({ port, host, open: flags.open === true });
 
   // Keep the CLI process alive; the HTTP server is the long-running work.
   await new Promise(() => {});

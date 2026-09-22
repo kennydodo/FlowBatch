@@ -28,26 +28,18 @@ Key paths and values:
   `character-a` / `street-style` / `alice-*` / `bob-front` test images. Others upload from `E:` on
   first use — the `BG_*.png` set is 14–18 MB each.
 
-## 1. Trim the `style` (user is doing this)
+## 1. ~~Trim the `style`~~ — DONE
 
-The job-wide `style` is **1858 chars / 258 words** and is prepended to all 85 prompts, so the
-combined length is 2273–2536 chars. The ceiling is ~2450 (2427 accepted, 2510 refused).
+The style was cut from 1858 to **1495 characters** (258 → 200 words). Verified:
 
-**Cut ~120 chars (~20 words) from the style** to bring the longest prompt under 2420 and fix all 26
-over-long items at once. Candidate compressions identified, none losing art direction:
-
-| Current | Trimmed | Saves |
+| | Before | After |
 | --- | --- | --- |
-| `no neon, no candy palette, no oversaturated rainbow` | `no neon or oversaturated colour` | 20 |
-| `restrained cel shading built from one base tone plus a soft shadow and an occasional highlight` | `restrained cel shading: one base tone, a soft shadow, occasional highlight` | 21 |
-| `no endless marble, no excessive gold, no ultra-glossy luxury surfaces` | `no marble, excess gold or glossy luxury surfaces` | 22 |
-| `Deliberate negative space and generous breathing room around characters and important objects so images tolerate later crop, pan and zoom.` | `Deliberate negative space and breathing room around subjects for later crop, pan and zoom.` | 43 |
+| `style` | 1858 chars | **1495** |
+| Total per item | 2273–2536 | **1910–2173** |
+| Items over 2420 | 26 | **0** |
 
-Also possible: drop `pale warm morning light, neutral midday,` (41 chars) since the scene prompts
-already specify lighting.
-
-Verify with `npm run generate -- --job "<shotlist>" --dry-run` — the load-time warning should
-disappear.
+277 characters of headroom at the longest prompt, and the load-time length warning is gone. All 85
+prompts fit. Keep the style under ~1800 characters when editing it so this stays true.
 
 ## 2. Skip-and-continue on over-long prompts
 
@@ -63,8 +55,8 @@ Files: `src/flow/driver.js` (`waitForNewAssets` sets `retryable: false`), `src/r
 
 ## 3. Re-run the batch
 
-Once the style is trimmed, `S01_01_HYB_PR` is the only failed item and 81 remain. Run in chunks
-rather than all 85 at once:
+**Unblocked** — every prompt now fits under the ceiling. `S01_01_HYB_PR` is the only failed item and
+81 remain. Run in chunks rather than all 85 at once:
 
 ```powershell
 npm run generate -- --job "<shotlist>" --limit 15 --project-url "<project url>"

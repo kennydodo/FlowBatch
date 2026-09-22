@@ -374,7 +374,22 @@ async function handle(req, res) {
   res.end('Not found');
 }
 
-export function startServer({ port = 8787, host = '127.0.0.1' } = {}) {
+/** Open a URL in the default browser, detached from this process. */
+function openBrowser(url) {
+  const [command, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+  try {
+    spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch {
+    log.warn(`Could not open a browser automatically; visit ${url}`);
+  }
+}
+
+export function startServer({ port = 8787, host = '127.0.0.1', open = false } = {}) {
   const server = http.createServer((req, res) => {
     handle(req, res).catch((error) => {
       log.error(String(error?.stack ?? error));
@@ -403,8 +418,10 @@ export function startServer({ port = 8787, host = '127.0.0.1' } = {}) {
   process.on('SIGTERM', shutdown);
 
   server.listen(port, host, () => {
-    log.ok(`FlowImagesGen UI running at http://${host}:${port}`);
+    const url = `http://${host}:${port}`;
+    log.ok(`FlowImagesGen UI running at ${url}`);
     log.info('Leave this process running. Press Ctrl+C to stop.');
+    if (open) openBrowser(url);
   });
 
   return server;

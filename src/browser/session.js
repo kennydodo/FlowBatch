@@ -20,7 +20,17 @@ export async function launchSession(settings, { headless } = {}) {
     '--disable-blink-features=AutomationControlled',
     '--no-first-run',
     '--no-default-browser-check',
-    '--disable-features=Translate,OptimizationGuideModelDownloading',
+    // Minimising the window is safe: Chrome suspends background timer throttling
+    // while a CDP client is attached, which is what Playwright is, so the page
+    // stays "visible" and its timers keep full rate. Measured with the window
+    // minimised: visibilityState "visible", document.hidden false, and a 100 ms
+    // interval firing 30 times in 3 s. These flags are therefore belt-and-braces
+    // rather than the mechanism - the same measurement without them was
+    // identical - but they cost nothing and cover a future Chrome change.
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-features=Translate,OptimizationGuideModelDownloading,CalculateNativeWinOcclusion',
     ...(browserConfig.extraArgs ?? []),
   ];
 

@@ -59,6 +59,15 @@ Only one dependency is used: `playwright`.
 
 ## Quick start
 
+**Double-click `FlowImagesGen.bat`** to start the tool. It checks Node is present and new enough,
+installs dependencies on first run, starts the UI and opens your browser. If the UI is already
+running it just opens it. Leave the window open while you work; close it to stop.
+
+(It is not called `start.bat` on purpose — `start` is a cmd builtin, which makes that name ambiguous
+from a terminal.)
+
+Or drive it from a terminal:
+
 ```powershell
 # 1. Sign in once. A browser window opens; finish the Google sign-in flow and it closes itself.
 npm run login
@@ -340,9 +349,11 @@ illustration; `realesrgan-x4plus` is x4-only and is downscaled for 2x and 3x.
 ## Web UI
 
 ```powershell
-npm run ui
-# then open http://127.0.0.1:8787
+npm run ui                 # then open http://127.0.0.1:8787
+npm run ui -- --open       # opens the browser once the server is listening
 ```
+
+`FlowImagesGen.bat` in the project root does the same thing with the browser step included.
 
 The page drives the same CLI as a child process — it is a front end, not a second implementation.
 
