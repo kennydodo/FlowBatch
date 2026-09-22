@@ -24,7 +24,7 @@
 
   "generation": {
     "mode": "image",
-    "agent": true,
+    "agent": false,
     "model": "Nano Banana 2",
     "aspectRatio": "16:9",
     "outputs": 1,

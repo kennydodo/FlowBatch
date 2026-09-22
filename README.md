@@ -29,13 +29,15 @@ Two things to know before you run it at volume:
 
 - A dedicated Chromium profile lives in `profile/`. You sign in to Google **once, by hand**; the
   session is reused on every later run.
-- **Agent mode must stay ON.** Flow gates generation behind reCAPTCHA Enterprise, and a session with
-  Agent mode OFF is refused outright with *"We noticed some unusual activity"* — typically within
-  three seconds, without a generation being attempted. That refusal is not a rate limit and waiting
-  does not clear it. With Agent ON, generation works normally.
-- Because Agent ON hides the prompt-box settings trigger, the **model, aspect ratio and output count
-  are set in the project settings panel** (the gear icon → *Agent settings*), which is what a
-  generation actually uses.
+- **Generation is gated by reCAPTCHA Enterprise**, and the score belongs to the signed-in
+  **account and browser session**, not to a single request. A session Flow distrusts is refused with
+  *"We noticed some unusual activity"* in about three seconds — no generation is attempted, so
+  waiting cannot help, and each refusal lowers the standing further.
+- **Agent mode OFF is what this project uses** (it keeps the per-item model, aspect-ratio and
+  output-count controls available). It works on a healthy account. On a session that Flow already
+  distrusts, Agent OFF is what tips a generation over into a refusal — in that situation Agent ON
+  (`--agent on`, or `"agent": true`) is the way to keep generating. Agent ON hides the prompt-box
+  settings, so the defaults then come from the project settings panel (gear icon → *Agent settings*).
 - References are attached through the prompt box's Add menu → *Upload media* → the project asset
   picker → *Add to prompt*. This is also why each reference becomes a project asset.
 - Results are fetched from the tile's signed CDN URL (`https://flow-content.google/...` or
@@ -231,7 +233,7 @@ indentation. It is idempotent — running it twice reports "Nothing to repair".
 | `prompt` | — | Required. |
 | `refs` | `defaults.refs` | Asset names, resolved through the top-level `refs` map. `[]` means no references. |
 | `mode` | `image` | `image` or `video`. |
-| `agent` | `true` | **Must stay true.** Agent OFF is refused by Flow as "unusual activity". |
+| `agent` | `false` | OFF keeps per-item model/ratio/output control. ON is the fallback if a session is being refused. |
 | `model` | `defaults.model` | As shown in Flow, e.g. `Nano Banana 2 Lite`, `Nano Banana 2`, `Nano Banana Pro`. |
 | `aspectRatio` | `defaults.aspectRatio` | Image mode offers `16:9`, `4:3`, `1:1`, `3:4`, `9:16`. |
 | `outputs` | `defaults.outputs` | Positive integer (`x1`–`x4`). |
@@ -584,7 +586,7 @@ From Google's own Flow guidance:
 | `N of 85 prompts exceed ... characters` at load | The job-wide `style` is usually most of it. Trim the style, not every prompt. |
 | `Could not locate the Flow UI element "x"` | Re-run `npm run discover` and update that key. |
 | `Generated the asset but could not save it` | Calibrate `assetTile`; check `debug/` for the grid state. |
-| `Flow refused ... unusual activity` within ~3s | Agent mode is OFF. Set `agent: true` (the default). This is not a rate limit. |
+| `Flow refused ... unusual activity` within ~3s | Not a rate limit — a reCAPTCHA standing problem on that account/session. Try `--agent on`, or sign in with a different Google account. Waiting and retrying make it worse. |
 | Model / ratio / outputs not applied | With Agent ON these come from the project settings panel (gear icon), not the prompt box. |
 | Project fills with duplicate uploads | Expected with `refMode: "upload"`. Delete the extras in Flow. |
 

@@ -37,6 +37,7 @@ const COMMANDS = {
       'cooldown',
       'max-cooldowns',
       'profile',
+      'agent',
       'channel',
       'slowmo',
       'url',
@@ -131,6 +132,7 @@ generate options
   --reset-state         Clear stored state before running
   --dry-run             Print the plan without launching a browser
   --repair-encoding     Fix mojibake (UTF-8 saved as CP1252) in prompts before sending
+  --agent <on|off>      Agent mode. ON avoids refusals; OFF gives per-item model/ratio control.
   --cooldown <seconds>  Wait this long after a rate-limit refusal, then retry (default: 180)
   --max-cooldowns <n>   Give up after this many consecutive waits (default: 10)
   --fail-fast           Stop at the first failed item

@@ -24,6 +24,14 @@ export async function generateCommand({ flags, context, positionals }) {
   if (typeof flags['project-url'] === 'string' && flags['project-url'].trim()) {
     job.projectUrl = flags['project-url'].trim();
   }
+  // `--agent off` keeps the prompt-box model / aspect-ratio / output-count
+  // controls available, at the cost of the refusal risk that Agent OFF carries
+  // on a session Flow already distrusts.
+  if (typeof flags.agent === 'string') {
+    const enabled = !['off', 'false', 'no', '0'].includes(flags.agent.trim().toLowerCase());
+    job.defaults = { ...(job.defaults ?? {}), agent: enabled };
+    for (const item of job.items) item.agent = enabled;
+  }
 
   const options = {
     only: listFlag(flags, 'only'),

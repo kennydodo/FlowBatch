@@ -67,13 +67,18 @@ These were established by probing the live signed-in UI. Do not "fix" them from 
 - The app is Angular Material with **no `data-testid` attributes**. Controls are labelled with
   `aria-label`, and custom elements carry stable tag names (`flow-rich-text-editor`,
   `flow-grid-tile-container`, `flow-toggles`, `flow-image-ingredient-chip`).
-- **Agent mode MUST stay ON, and this is the single most important thing in this file.** Flow gates
-  generation behind reCAPTCHA Enterprise. With Agent OFF, every generation is refused with
-  *"We noticed some unusual activity"* in about three seconds — no generation is attempted, waiting
-  does not help, and each refusal appears to lower the session's standing further. With Agent ON it
-  generates normally. A comparable driver that never touched this toggle ran the same 85-item job
-  without a single refusal. `generation.agent` therefore defaults to `true`; do not set it false to
-  reach the prompt-box settings.
+- **Generation is gated by reCAPTCHA Enterprise** (requests to
+  `www.google.com/recaptcha/enterprise/reload` and `/clr` fire when Generate is clicked). The score
+  belongs to the **signed-in account and browser session**, so a refusal is *"We noticed some unusual
+  activity"* in ~3 seconds with no generation attempted. It is not a rate limit: waiting does not
+  help, and each refusal lowers the standing further. Measured 2026-09-22: `koogunyemi@gmail.com`
+  generated normally while `japanliveshealthy@gmail.com` was refused on every attempt, with the same
+  code, profile copy and settings — so when this appears, suspect the account before the code.
+- **Agent mode OFF is the default** because it keeps the per-item model / aspect-ratio / output-count
+  controls. It works on an account with good standing. On a session Flow already distrusts, Agent OFF
+  is the difference between generating and being refused — `--agent on` was verified to turn three
+  consecutive refusals into four consecutive successes on such a session. Agent ON hides the
+  prompt-box settings trigger, so defaults then come from the project settings panel.
 - Because Agent ON hides the prompt-box settings trigger, the **model / aspect ratio / output count
   are set in the project settings panel** — the gear icon (`button[aria-label='Settings']`), a
   right-hand sidebar titled *Agent settings* with `flow-toggles[aria-label='Image generation default
