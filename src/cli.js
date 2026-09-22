@@ -13,17 +13,17 @@ import { upscaleCommand } from '../commands/upscale.js';
 const COMMANDS = {
   login: {
     run: loginCommand,
-    valueFlags: ['channel', 'slowmo', 'url'],
+    valueFlags: ['channel', 'slowmo', 'url', 'profile'],
     summary: 'Open the persistent browser profile so you can sign in to Google Flow once.',
   },
   discover: {
     run: discoverCommand,
-    valueFlags: ['wait', 'navigate', 'channel', 'slowmo', 'url', 'click', 'dump', 'agent', 'upload'],
+    valueFlags: ['wait', 'navigate', 'channel', 'slowmo', 'url', 'profile', 'click', 'dump', 'agent', 'upload'],
     summary: 'Dump the Flow DOM (testids, buttons, file inputs) to calibrate config/selectors.json.',
   },
   doctor: {
     run: doctorCommand,
-    valueFlags: ['channel', 'slowmo', 'url', 'project-url'],
+    valueFlags: ['channel', 'slowmo', 'url', 'profile', 'project-url'],
     summary: 'Check the environment, config and (with --live) resolve every selector on the real page.',
   },
   generate: {
@@ -36,6 +36,7 @@ const COMMANDS = {
       'project-url',
       'cooldown',
       'max-cooldowns',
+      'profile',
       'channel',
       'slowmo',
       'url',
@@ -116,6 +117,7 @@ Common options
   --log-level <debug|info|warn|error>   Console verbosity (default: info)
   --no-color                            Disable coloured output
   --channel <name>                      Browser channel, e.g. chrome or msedge
+  --profile <dir>                       Use a different browser profile (rotates the Google session)
   --headless                            Run without a visible window (not recommended for login)
   --url <url>                           Override the Flow URL
 

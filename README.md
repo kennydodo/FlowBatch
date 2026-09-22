@@ -13,7 +13,7 @@ refs/street-style.png ─┴─► Google Flow (Image mode) ─► output/<job>/
 
 ## Status
 
-Verified end to end against the live Flow UI on **2026-09-21**: Agent mode off, prompt-box settings
+Verified end to end against the live Flow UI on **2026-09-21/22**: Agent mode on, project settings
 (model / aspect ratio / output count), reference upload through the asset picker, generation, and
 full-resolution download (1376×768 at 16:9) all work.
 
@@ -29,8 +29,13 @@ Two things to know before you run it at volume:
 
 - A dedicated Chromium profile lives in `profile/`. You sign in to Google **once, by hand**; the
   session is reused on every later run.
-- Flow's **Agent mode is ON by default and hides the model / aspect-ratio / output-count controls**.
-  The runner switches Agent off, which reveals the prompt-box settings trigger.
+- **Agent mode must stay ON.** Flow gates generation behind reCAPTCHA Enterprise, and a session with
+  Agent mode OFF is refused outright with *"We noticed some unusual activity"* — typically within
+  three seconds, without a generation being attempted. That refusal is not a rate limit and waiting
+  does not clear it. With Agent ON, generation works normally.
+- Because Agent ON hides the prompt-box settings trigger, the **model, aspect ratio and output count
+  are set in the project settings panel** (the gear icon → *Agent settings*), which is what a
+  generation actually uses.
 - References are attached through the prompt box's Add menu → *Upload media* → the project asset
   picker → *Add to prompt*. This is also why each reference becomes a project asset.
 - Results are fetched from the tile's signed CDN URL (`https://flow-content.google/...` or
@@ -226,7 +231,7 @@ indentation. It is idempotent — running it twice reports "Nothing to repair".
 | `prompt` | — | Required. |
 | `refs` | `defaults.refs` | Asset names, resolved through the top-level `refs` map. `[]` means no references. |
 | `mode` | `image` | `image` or `video`. |
-| `agent` | `false` | Keep this false; Agent mode hides the settings the runner needs. |
+| `agent` | `true` | **Must stay true.** Agent OFF is refused by Flow as "unusual activity". |
 | `model` | `defaults.model` | As shown in Flow, e.g. `Nano Banana 2 Lite`, `Nano Banana 2`, `Nano Banana Pro`. |
 | `aspectRatio` | `defaults.aspectRatio` | Image mode offers `16:9`, `4:3`, `1:1`, `3:4`, `9:16`. |
 | `outputs` | `defaults.outputs` | Positive integer (`x1`–`x4`). |
@@ -579,7 +584,8 @@ From Google's own Flow guidance:
 | `N of 85 prompts exceed ... characters` at load | The job-wide `style` is usually most of it. Trim the style, not every prompt. |
 | `Could not locate the Flow UI element "x"` | Re-run `npm run discover` and update that key. |
 | `Generated the asset but could not save it` | Calibrate `assetTile`; check `debug/` for the grid state. |
-| Settings never applied | Ensure `agent` is `false`; the settings trigger is hidden while Agent mode is on. |
+| `Flow refused ... unusual activity` within ~3s | Agent mode is OFF. Set `agent: true` (the default). This is not a rate limit. |
+| Model / ratio / outputs not applied | With Agent ON these come from the project settings panel (gear icon), not the prompt box. |
 | Project fills with duplicate uploads | Expected with `refMode: "upload"`. Delete the extras in Flow. |
 
 ## Limitations

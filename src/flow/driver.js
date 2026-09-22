@@ -378,8 +378,125 @@ export class FlowDriver {
    * the settings trigger (model / aspect ratio / output count) appear. Mode,
    * model, ratio and count all live inside that one overlay.
    */
+  // ------------------------------------------------- project default settings
+
+  /**
+   * Agent mode ON is the mode Flow actually allows automated sessions to
+   * generate in. With it ON the prompt-box settings trigger is hidden, so the
+   * model / aspect ratio / output count come from the PROJECT defaults, which
+   * this panel edits.
+   */
+  async openProjectSettings() {
+    const button = await this.find('projectSettingsButton', { timeout: 8000 });
+    // The panel is a sidebar and the trigger does not always register first
+    // time, so retry before giving up.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await button.locator.click({ force: true }).catch(() => {});
+      await sleep(1600);
+      if (await this.selectors.exists(this.page, 'projectAspectGroup', { timeout: 4000 })) return true;
+    }
+    throw new Error('The project settings panel did not open. Calibrate "projectSettingsButton".');
+  }
+
+  async projectModelLabel() {
+    const found = await this.selectors.find(this.page, 'projectModelButton', { timeout: 4000, required: false });
+    if (!found) return '';
+    return this.modelButtonLabel(found.locator);
+  }
+
+  async setProjectModel(name) {
+    const found = await this.selectors.find(this.page, 'projectModelButton', { timeout: 5000 });
+    await found.locator.click();
+    await sleep(800);
+    const option = await this.findByText(name, { timeout: 6000, required: false });
+    if (!option) {
+      log.warn(`Project default model "${name}" was not found in the model menu.`);
+      await this.page.keyboard.press('Escape').catch(() => {});
+      return false;
+    }
+    await option.locator.click();
+    await sleep(600);
+    return true;
+  }
+
+  /** Returns true when the value had to change. */
+  async setProjectToggle(groupKey, label) {
+    const group = await this.find(groupKey, { timeout: 5000 });
+    const option = group.locator.locator(`button:has-text(${JSON.stringify(label)})`).first();
+    if ((await option.count().catch(() => 0)) === 0) {
+      log.warn(`Project setting "${label}" is not offered.`);
+      return false;
+    }
+    if (await this.#isToggleChecked(option)) return false;
+    await option.click();
+    await sleep(400);
+    return true;
+  }
+
+  async saveProjectSettings() {
+    const save = await this.selectors.find(this.page, 'projectSettingsSave', { timeout: 5000, required: false });
+    if (!save) {
+      log.warn('No Save control in the project settings panel; changes may not persist.');
+      return false;
+    }
+    await save.locator.click();
+    await sleep(1200);
+    return true;
+  }
+
+  /**
+   * The panel is a sidebar that covers the composer, so it MUST be closed or
+   * every later step fails to find the prompt box. Verified rather than assumed.
+   */
+  async closeProjectSettings() {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (!(await this.selectors.exists(this.page, 'projectAspectGroup', { timeout: 0 }))) return true;
+      const close = await this.selectors.find(this.page, 'projectSettingsClose', { timeout: 2500, required: false });
+      if (close) await close.locator.click({ force: true }).catch(() => {});
+      else await this.page.keyboard.press('Escape').catch(() => {});
+      await sleep(700);
+    }
+    const stillOpen = await this.selectors.exists(this.page, 'projectAspectGroup', { timeout: 0 });
+    if (stillOpen) log.warn('The project settings panel would not close; the composer may be covered.');
+    return !stillOpen;
+  }
+
+  /**
+   * Bring the project's image defaults in line with the job. Only writes when
+   * something actually differs, so a run does not re-save on every item.
+   */
+  async applyProjectDefaults({ model, aspectRatio, outputs }) {
+    await this.openProjectSettings();
+    let changed = false;
+
+    if (model) {
+      const current = await this.projectModelLabel();
+      if (normalizeModelName(current) !== normalizeModelName(model)) {
+        changed = (await this.setProjectModel(model)) || changed;
+      }
+    }
+    if (aspectRatio) changed = (await this.setProjectToggle('projectAspectGroup', aspectRatio)) || changed;
+    if (outputs) changed = (await this.setProjectToggle('projectOutputGroup', `x${outputs}`)) || changed;
+
+    if (changed) {
+      await this.saveProjectSettings();
+      log.info('Updated the project defaults for image generation.');
+    }
+    const label = await this.projectModelLabel();
+    await this.closeProjectSettings();
+    if (label) log.info(`Project image defaults: ${label.replace(/\s+/g, ' ').trim()}`);
+    return true;
+  }
+
   async applyGenerationSettings({ mode, model, aspectRatio, outputs, agent }) {
-    await this.ensureAgentMode(agent === true);
+    // Agent ON is the default because Agent OFF is refused outright for an
+    // automated session ("unusual activity"), which no amount of waiting fixes.
+    if (agent !== false) {
+      await this.ensureAgentMode(true);
+      return this.applyProjectDefaults({ model, aspectRatio, outputs });
+    }
+
+    await this.ensureAgentMode(false);
 
     const summary = await this.settingsSummary();
     const alreadyMatches =
@@ -951,7 +1068,13 @@ export class FlowDriver {
         (entry) => !beforeKeys.has(entry.key) && !entry.uploaded && !isExcluded(entry),
       );
       const withRedo = fresh.filter((entry) => entry.hasImage && entry.canRedo);
-      added = withRedo.length > 0 ? withRedo : fresh.filter((entry) => entry.hasImage);
+      const candidates = withRedo.length > 0 ? withRedo : fresh.filter((entry) => entry.hasImage);
+      // For a single output, only the NEWEST tile can be the result. An older
+      // tile that lazily swaps to its full-res variant looks new but is not one,
+      // and cannot be downloaded - which is how a run saved one good image and
+      // then failed on a phantom second.
+      const newest = candidates.filter((entry) => entry.index === 0);
+      added = expected === 1 && newest.length > 0 ? newest : candidates;
 
       // A refused generation shows up as a new tile, not as a new image.
       const refusal = fresh.find((entry) => entry.failed) ?? null;

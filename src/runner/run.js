@@ -313,9 +313,13 @@ export async function runJob({ job, driver, state, settings, options }) {
             break;
           }
 
-          // A rate limit is temporary: pause and try the same item again rather
-          // than abandoning the remaining items.
-          if (rateLimited && cooldownsUsed < maxCooldowns) {
+          // Retrying inside the SAME session is usually pointless: Flow gates
+          // generation behind reCAPTCHA Enterprise, and the score belongs to the
+          // browser session, so a refusal will not improve by waiting. Worse,
+          // each refused attempt is another negative signal on that session, so
+          // grinding here lowers the score further. Default is to stop and let
+          // the next run (ideally a fresh profile) pick the item up.
+          if (rateLimited && maxCooldowns > 0 && cooldownsUsed < maxCooldowns) {
             cooldownsUsed += 1;
             log.warn(
               `Flow is rate limiting. Waiting ${Math.round(cooldownMs / 1000)}s, then retrying ` +
@@ -328,7 +332,13 @@ export async function runJob({ job, driver, state, settings, options }) {
           }
 
           if (rateLimited) {
-            log.error(`Still rate limited after ${maxCooldowns} cooldowns; stopping the batch.`);
+            log.error(
+              maxCooldowns > 0
+                ? `Still refused after ${maxCooldowns} cooldown(s); stopping the batch.`
+                : 'Flow refused the generation. Stopping rather than retrying: the block is a reCAPTCHA ' +
+                    'score on this browser profile, so retries in the same session only lower it. ' +
+                    'Re-run later, ideally with a fresh profile (--profile <dir>).',
+            );
           } else {
             log.error('This failure is not retryable; stopping the batch after this item.');
           }

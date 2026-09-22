@@ -67,7 +67,20 @@ These were established by probing the live signed-in UI. Do not "fix" them from 
 - The app is Angular Material with **no `data-testid` attributes**. Controls are labelled with
   `aria-label`, and custom elements carry stable tag names (`flow-rich-text-editor`,
   `flow-grid-tile-container`, `flow-toggles`, `flow-image-ingredient-chip`).
-- **Agent mode is ON by default, persists per project, and hides the prompt-box settings trigger.**
+- **Agent mode MUST stay ON, and this is the single most important thing in this file.** Flow gates
+  generation behind reCAPTCHA Enterprise. With Agent OFF, every generation is refused with
+  *"We noticed some unusual activity"* in about three seconds — no generation is attempted, waiting
+  does not help, and each refusal appears to lower the session's standing further. With Agent ON it
+  generates normally. A comparable driver that never touched this toggle ran the same 85-item job
+  without a single refusal. `generation.agent` therefore defaults to `true`; do not set it false to
+  reach the prompt-box settings.
+- Because Agent ON hides the prompt-box settings trigger, the **model / aspect ratio / output count
+  are set in the project settings panel** — the gear icon (`button[aria-label='Settings']`), a
+  right-hand sidebar titled *Agent settings* with `flow-toggles[aria-label='Image generation default
+  aspect ratio' | '... output count']`, `button[aria-label='Image generation default model']` and a
+  Save button that only renders when something changed. The sidebar covers the composer, so it must
+  be closed (its Back button) before anything touches the prompt box.
+- Agent mode is ON by default, persists per project, and hides the prompt-box settings trigger.
   `button.agent-mode-chip` exposes state via `aria-pressed`. Toggling must be idempotent — a blind
   click flips it back.
 - With Agent off, `button.settings-trigger-button` opens a `flow-prompt-box-settings` overlay holding

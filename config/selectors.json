@@ -55,8 +55,37 @@
   ],
 
   "agentToggle": [
-    "button.agent-mode-chip",
-    "flow-agent-mode-toggle-chip button"
+    "flow-agent-mode-toggle-chip button",
+    "button.agent-mode-chip-checked",
+    "button.agent-mode-chip"
+  ],
+
+  "projectSettingsButton": [
+    "button[aria-label='Settings']",
+    "button[aria-label*='project settings' i]"
+  ],
+
+  "projectModelButton": [
+    "button[aria-label='Image generation default model']"
+  ],
+
+  "projectAspectGroup": [
+    "flow-toggles[aria-label='Image generation default aspect ratio']"
+  ],
+
+  "projectOutputGroup": [
+    "flow-toggles[aria-label='Image generation default output count']"
+  ],
+
+  "projectSettingsSave": [
+    "button:text-is('Save')",
+    "button:has-text('Save')"
+  ],
+
+  "projectSettingsClose": [
+    "button[aria-label='Back']",
+    "button[aria-label='Close']",
+    "button[aria-label*='close' i]"
   ],
 
   "settingsTriggerButton": [
