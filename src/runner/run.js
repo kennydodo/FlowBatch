@@ -129,7 +129,10 @@ export async function runJob({ job, driver, state, settings, options }) {
   let failed = 0;
   let aborted = false;
   const results = [];
-  let firstItem = true;
+  // The prompt box is configured once per run. A cooldown retry of the first
+  // item must not configure it again, which is why this is not a `firstItem`
+  // flag flipped at the end of the loop body.
+  let settingsApplied = false;
 
   for (const item of items) {
     log.heading(`Item ${item.id} (${item.index + 1}/${job.items.length})`);
@@ -149,12 +152,27 @@ export async function runJob({ job, driver, state, settings, options }) {
       state.save();
 
       try {
-        if (!firstItem && resetMode === 'reload') {
+        if (!settingsApplied) {
+          await driver.applyGenerationSettings(genSettings);
+          settingsApplied = true;
+        } else if (resetMode === 'reload') {
           log.debug('Reloading the project to reset the prompt box.');
           await driver.reload();
           if (reapply) await driver.applyGenerationSettings(genSettings);
-        } else if (firstItem) {
-          await driver.applyGenerationSettings(genSettings);
+        } else {
+          // Clear the composer in place instead of reloading the whole app.
+          // A reload is the fallback if the composer will not come clean.
+          const cleared = await driver.clearComposerForNextItem();
+          if (!cleared) {
+            log.warn('Composer could not be cleared in place; reloading the project.');
+            await driver.reload();
+            if (reapply) await driver.applyGenerationSettings(genSettings);
+          }
+          // The prompt-box settings survive an in-place clear - they are the
+          // project's defaults, not composer state - so they are deliberately
+          // NOT re-applied here. Re-applying means opening the settings overlay
+          // for nothing, and clicking the trigger while it is already open just
+          // closes it again.
         }
 
         if (refMode === 'mention') {
@@ -345,7 +363,6 @@ export async function runJob({ job, driver, state, settings, options }) {
     }
 
     if (aborted) break;
-    firstItem = false;
     if (delayBetweenItemsMs > 0) await sleep(delayBetweenItemsMs);
   }
 

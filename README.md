@@ -40,6 +40,25 @@ Two things to know before you run it at volume:
 - `config/selectors.json` maps semantic names (`promptBox`, `generateButton`, `assetTile`, …) to
   ordered lists of Playwright selectors, so a Flow UI change is a config edit rather than a code
   change.
+- **The Flow page is loaded once per batch, not once per item.** Between items the composer is
+  cleared in place — the text is selected and deleted, and each attached reference is detached via
+  its own remove control. Reloading the whole app before every item is far more activity than a
+  human produces and was the largest behavioural difference from a comparable driver that ran the
+  same job without being rate limited. A reload is still used as a fallback when the composer will
+  not come clean, and `generation.resetBetweenItems: "reload"` restores the old behaviour.
+
+### Clearing the composer
+
+Two details that are easy to get wrong:
+
+- The ingredient chips live in `flow-ingredient-bar`, **not inside the ProseMirror editable**, so
+  select-all in the editor does not remove them. Each chip has its own remove control
+  (`flow-image-ingredient-chip div.hover-icon-overlay`) that must be clicked, and it is transparent
+  until hovered, so the click is forced.
+- The prompt-box settings (model, aspect ratio, output count) are **project defaults and survive an
+  in-place clear**, so they are applied once per run rather than per item. Re-applying means opening
+  the settings overlay for nothing, and clicking its trigger while it is already open just closes it
+  again.
 
 ## Requirements
 

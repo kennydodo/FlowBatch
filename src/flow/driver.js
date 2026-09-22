@@ -238,6 +238,11 @@ export class FlowDriver {
   }
 
   async openSettingsOverlay() {
+    // Idempotent: clicking the trigger while the overlay is already open would
+    // close it again, leaving nothing to configure.
+    if (await this.selectors.exists(this.page, 'settingsOverlay', { timeout: 0 })) {
+      return null;
+    }
     const button = await this.find('settingsTriggerButton', { timeout: 8000 });
     await button.locator.click();
     await sleep(600);
@@ -723,16 +728,72 @@ export class FlowDriver {
     }
   }
 
+  /**
+   * Detach every ingredient from the composer.
+   *
+   * The chips live in `flow-ingredient-bar`, NOT inside the ProseMirror
+   * editable, so a select-all in the editor does not remove them. Each chip
+   * carries its own remove control that has to be clicked.
+   */
+  async detachAllReferences({ max = 12 } = {}) {
+    for (let attempt = 0; attempt < max; attempt += 1) {
+      const count = await this.selectors.count(this.page, 'promptReferenceChip');
+      if (count === 0) return true;
+
+      const remove = await this.selectors.find(this.page, 'promptReferenceRemoveButton', {
+        timeout: 2500,
+        required: false,
+      });
+      if (!remove) {
+        log.warn('No control found to detach an attached reference.');
+        return false;
+      }
+      // The overlay is transparent until hovered, so force the click.
+      await remove.locator.click({ force: true }).catch(() => {});
+      await sleep(600);
+    }
+    return (await this.selectors.count(this.page, 'promptReferenceChip')) === 0;
+  }
+
+  /**
+   * Reset the composer in place for the next item.
+   *
+   * Reloading the whole Flow app before every item is slow and unlike anything a
+   * human does - it was the largest behavioural difference from the Renderly
+   * driver, which loads the page once per batch. Clearing the composer achieves
+   * the same clean state; a reload stays available as a fallback and via
+   * `generation.resetBetweenItems: "reload"`.
+   */
+  async clearComposerForNextItem() {
+    await this.closeAssetLibrary();
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await sleep(300);
+
+    // References first: clicking the editor while a chip sits under the cursor
+    // can open the chip preview instead of placing the caret.
+    const detached = await this.detachAllReferences();
+    await this.clearPrompt();
+
+    const remaining = await this.selectors.count(this.page, 'promptReferenceChip');
+    if (remaining > 0) log.warn(`${remaining} reference(s) still attached after clearing.`);
+    return detached && remaining === 0;
+  }
+
   /** "Clear prompt" wipes both the text and every attached ingredient. */
   async clearPromptAndReferences() {
     const button = await this.selectors.find(this.page, 'clearPromptButton', {
       timeout: 3000,
       required: false,
     });
-    if (!button) return false;
-    await button.locator.click().catch(() => {});
-    await sleep(600);
-    return true;
+    if (button) {
+      await button.locator.click().catch(() => {});
+      await sleep(600);
+      return true;
+    }
+    // No clear control in this version of the UI - do it by hand.
+    await this.detachAllReferences();
+    await this.clearPrompt();
+    return (await this.selectors.count(this.page, 'promptReferenceChip')) === 0;
   }
 
   async waitForReferences(expected) {

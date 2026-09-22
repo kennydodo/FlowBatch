@@ -158,6 +158,12 @@
     "div.prompt-ingredient-bar img.chip-image"
   ],
 
+  "promptReferenceRemoveButton": [
+    "flow-image-ingredient-chip div.hover-icon-overlay",
+    "flow-image-ingredient-chip mat-icon.hover-icon",
+    "flow-image-ingredient-chip button.chip-container div.hover-icon-overlay"
+  ],
+
   "clearPromptButton": [
     "button[aria-label='Clear prompt']",
     "button.clear-button"

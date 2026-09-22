@@ -6,10 +6,12 @@ import { log } from '../lib/log.js';
  * a normal browser session so Google sign-in is less likely to be refused.
  */
 function stealthInit() {
-  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  if (!navigator.languages || navigator.languages.length === 0) {
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-  }
+  // A plain Chrome reports `false`, not undefined. Overriding it to undefined
+  // is a worse tell than leaving it alone, so match the real value.
+  Object.defineProperty(navigator, 'webdriver', { get: () => false });
+  // A real en-US Chrome reports two languages; the single value Playwright
+  // produces from `locale` is a fingerprint.
+  Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
 }
 
 export async function launchSession(settings, { headless } = {}) {

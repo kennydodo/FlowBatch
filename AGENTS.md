@@ -74,6 +74,18 @@ These were established by probing the live signed-in UI. Do not "fix" them from 
   **all** of mode (`flow-toggles[aria-label='Mode']`), aspect ratio, output count and the model menu.
   Toggle selection is `aria-checked`, not `aria-pressed`.
 - The prompt box is `flow-rich-text-editor .ProseMirror[contenteditable='true']`.
+- **Ingredient chips are NOT inside the editable.** They live in `flow-ingredient-bar`, so a
+  select-all in the editor leaves them attached. Each chip carries its own remove control
+  (`flow-image-ingredient-chip div.hover-icon-overlay`) which is transparent until hovered and needs
+  a forced click. There is **no "Clear prompt" button** in the current UI, so
+  `clearPromptButton` never resolves — `detachAllReferences()` + `clearPrompt()` is the real path.
+- **Do not reload the page between items.** `clearComposerForNextItem()` resets the composer in
+  place; reloading the whole app before every item is far more activity than a human produces and
+  correlates with rate limiting. Reload only as a fallback, or when
+  `generation.resetBetweenItems: "reload"`.
+- Prompt-box settings are project defaults that **survive an in-place clear**, so apply them once per
+  run. Re-applying opens the settings overlay needlessly, and clicking the trigger while it is open
+  closes it — which surfaces as `Could not locate the Flow UI element "modeImageOption"`.
 - Clicking the prompt-box `+` (`button.add-menu-trigger`) opens Flow's **asset library inline**
   (`flow-add-menu-asset-list`, search `input[aria-label='Search assets']`, rows
   `button.asset-item[role='option']` with `span.asset-title`). It creates **no file input** — do not

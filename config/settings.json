@@ -32,7 +32,7 @@
     "maxPromptChars": 2420,
     "cooldownSeconds": 180,
     "maxCooldowns": 10,
-    "resetBetweenItems": "reload",
+    "resetBetweenItems": "clear",
     "reapplySettingsAfterReset": true,
     "retries": 1,
     "retryDelayMs": 5000,
