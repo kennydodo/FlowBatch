@@ -29,8 +29,10 @@ export function selectItems(items, { only, limit, resume, state }) {
     if (missing.length > 0) throw new Error(`--only referenced unknown item id(s): ${missing.join(', ')}`);
     selected = selected.filter((item) => wanted.has(item.id));
   }
-  if (limit && limit > 0) selected = selected.slice(0, limit);
+  // Skip finished items BEFORE applying the limit, so `--limit 15` means fifteen
+  // items actually run rather than fifteen selected minus whatever is already done.
   if (resume && state) selected = selected.filter((item) => !state.isDone(item.id));
+  if (limit && limit > 0) selected = selected.slice(0, limit);
   return selected;
 }
 
