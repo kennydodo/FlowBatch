@@ -140,6 +140,16 @@ export class FlowDriver {
     await this.waitForPromptBox({ timeout: this.timeouts.readyMs });
   }
 
+  /** The project's own title, as shown in its header (Flow names new ones by date). */
+  async projectName() {
+    const found = await this.selectors.find(this.page, 'projectTitle', { timeout: 2500, required: false });
+    if (!found) return null;
+    const value = await found.locator.inputValue().catch(() => null);
+    if (value && value.trim()) return value.trim();
+    const text = (await found.locator.innerText().catch(() => '')) ?? '';
+    return text.trim() || null;
+  }
+
   async signInState({ timeoutMs = 5000 } = {}) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -200,7 +210,7 @@ export class FlowDriver {
   async ensureProject(name) {
     if (await this.isInsideProject()) {
       log.debug('Already inside a Flow project.');
-      return;
+      return { created: false };
     }
 
     if (name) {
@@ -210,7 +220,7 @@ export class FlowDriver {
         await card.click();
         await sleep(1500);
         await this.waitForPromptBox();
-        return;
+        return { created: false };
       }
       log.warn(`Project "${name}" was not found in the project list; creating a new project instead.`);
     }
@@ -220,6 +230,7 @@ export class FlowDriver {
     await button.locator.click();
     await sleep(2000);
     await this.waitForPromptBox();
+    return { created: true };
   }
 
   // ---------------------------------------------------------------- settings
@@ -743,6 +754,90 @@ export class FlowDriver {
     }
     await attach.locator.click();
     await sleep(1500);
+  }
+
+  /**
+   * True when the project already holds an asset with this name.
+   *
+   * Strict on purpose: the title must match exactly, or match once its file
+   * extension is stripped. A fuzzy search hit is never taken as proof, because
+   * "prepare" uses this to decide whether a reference still has to be uploaded.
+   * Opens and closes the asset library itself.
+   */
+  async galleryHasAsset(name) {
+    await this.openAssetLibrary();
+    try {
+      const search = await this.find('assetPickerSearch', { timeout: 8000, required: false });
+      if (!search) return false;
+      await search.locator.fill(name);
+      await sleep(1800);
+
+      let items = null;
+      for (const selector of this.selectors.candidates('assetPickerItem')) {
+        const candidate = this.page.locator(selector);
+        if ((await candidate.count().catch(() => 0)) > 0) {
+          items = candidate;
+          break;
+        }
+      }
+      if (!items) return false;
+
+      const count = await items.count();
+      for (let index = 0; index < count; index += 1) {
+        const title = (
+          (await items
+            .nth(index)
+            .locator('span.asset-title, .asset-title')
+            .first()
+            .innerText()
+            .catch(() => '')) ?? ''
+        ).trim();
+        if (!title) continue;
+        if (title === name || title.replace(/\.[a-z0-9]+$/i, '') === name) return true;
+      }
+      return false;
+    } finally {
+      await this.closeAssetLibrary();
+    }
+  }
+
+  /**
+   * Upload a local file into the project gallery, without attaching it to the
+   * prompt box. The picker is closed with Escape rather than "Add to prompt", so
+   * the asset lands in the project and no chip is added - a prepare run only
+   * needs the asset to exist. Returns true when the picker confirmed the upload.
+   */
+  async uploadReferenceToGallery(file) {
+    await this.openAssetLibrary();
+
+    const mediaOption = await this.find('addMediaOption', { timeout: 8000, required: false });
+    if (!mediaOption) {
+      await this.closeAssetLibrary();
+      log.warn('The asset library did not offer "Upload media". Calibrate "addMediaOption".');
+      return false;
+    }
+
+    const chooserPromise = this.page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
+    await mediaOption.locator.click();
+    const chooser = await chooserPromise;
+    if (chooser) {
+      await chooser.setFiles([file]);
+    } else {
+      const input = await this.waitForFileInput(8000);
+      if (!input) {
+        await this.closeAssetLibrary();
+        log.warn('No file input appeared after choosing "Upload media". Calibrate "fileInput".');
+        return false;
+      }
+      await input.setInputFiles([file]);
+    }
+
+    const settled = await this.waitForUploadToSettle({ expected: 1 });
+    await this.closeAssetLibrary();
+    if (!settled) {
+      log.warn(`The picker did not confirm the upload of ${path.basename(file)}.`);
+    }
+    return settled;
   }
 
   /**

@@ -8,6 +8,7 @@ import { doctorCommand } from '../commands/doctor.js';
 import { generateCommand } from '../commands/generate.js';
 import { serveCommand } from '../commands/serve.js';
 import { repairCommand } from '../commands/repair.js';
+import { prepareCommand } from '../commands/prepare.js';
 import { upscaleCommand } from '../commands/upscale.js';
 
 const COMMANDS = {
@@ -54,6 +55,11 @@ const COMMANDS = {
     valueFlags: ['job'],
     summary: 'Fix a job JSON in place: strip a UTF-8 BOM and repair mojibake text.',
   },
+  prepare: {
+    run: prepareCommand,
+    valueFlags: ['job', 'report', 'project-url', 'profile', 'channel', 'slowmo', 'url'],
+    summary: 'Open or create a job\u2019s Flow project and get its references into the gallery, without generating.',
+  },
   upscale: {
     run: upscaleCommand,
     valueFlags: ['tier', 'model', 'out', 'fit', 'set-tier', 'set-scale', 'scale'],
@@ -76,6 +82,7 @@ Commands
   generate   ${COMMANDS.generate.summary}
   serve      ${COMMANDS.serve.summary}
   repair     ${COMMANDS.repair.summary}
+  prepare    ${COMMANDS.prepare.summary}
   upscale    ${COMMANDS.upscale.summary}
 
 login options
@@ -108,6 +115,12 @@ repair options
   --job <file>          Job JSON to repair (or pass it as the first argument)
   --dry-run             Show what would change without writing
   --no-backup           Skip the .bak copy
+
+prepare options
+  --job <file>          Job JSON (or pass it as the first argument)
+  --report <file>       Write the report here, atomically, as soon as the project exists
+  --project-url <url>   Open this project instead of resolving one from the job
+  Prints FLOW_PROJECT_URL=<url> on stdout. Never generates anything.
 
 serve options
   --port <n>            Port to listen on (default: 8787)
