@@ -4,9 +4,75 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 import { ROOT, fromRoot } from './lib/paths.js';
-import { readJson } from './lib/json.js';
+import { readJson, writeJson } from './lib/json.js';
 import { log } from './lib/log.js';
+import { deepMerge, loadSettings } from './lib/config.js';
 import { describeUpscaler, normalizeTier, saveUpscaleSettings } from './upscale/index.js';
+
+const CONFIG_DIR = path.join(ROOT, 'config');
+const LOCAL_SETTINGS = path.join(CONFIG_DIR, 'settings.local.json');
+
+/**
+ * Chrome records the signed-in account in the profile's own Preferences file, so
+ * the settings page can name the account rather than just a folder.
+ */
+function readProfileAccount(profileDir) {
+  for (const sub of ['Default', 'Profile 1', 'Profile 2']) {
+    const file = path.join(profileDir, sub, 'Preferences');
+    if (!fs.existsSync(file)) continue;
+    try {
+      const prefs = readJson(file, { required: false });
+      const email = prefs?.account_info?.[0]?.email;
+      if (email) return email;
+    } catch {
+      /* unreadable profile */
+    }
+  }
+  return null;
+}
+
+function listProfiles(currentName) {
+  const found = [];
+  for (const name of fs.readdirSync(ROOT)) {
+    if (name !== 'profile' && !name.startsWith('profile-')) continue;
+    const dir = path.join(ROOT, name);
+    let stat;
+    try {
+      stat = fs.statSync(dir);
+    } catch {
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    found.push({
+      name,
+      account: readProfileAccount(dir),
+      modified: stat.mtime.toISOString().slice(0, 16).replace('T', ' '),
+      current: name === currentName,
+    });
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function settingsView() {
+  const settings = loadSettings(CONFIG_DIR);
+  const profileDir = settings.paths?.profileDir ?? 'profile';
+  return {
+    profileDir,
+    agent: settings.generation?.agent === true,
+    cooldownSeconds: settings.generation?.cooldownSeconds ?? 180,
+    maxCooldowns: settings.generation?.maxCooldowns ?? 0,
+    maxPromptChars: settings.generation?.maxPromptChars ?? 2420,
+    profiles: listProfiles(profileDir),
+    localFile: path.relative(ROOT, LOCAL_SETTINGS),
+  };
+}
+
+/** Writes only the local override file, so the tracked config stays clean. */
+function saveSettingsPatch(patch) {
+  const current = readJson(LOCAL_SETTINGS, { required: false }) ?? {};
+  writeJson(LOCAL_SETTINGS, deepMerge(current, patch));
+  return settingsView();
+}
 
 const UI_DIR = path.join(ROOT, 'ui');
 const CLI = path.join(ROOT, 'src', 'cli.js');
@@ -317,6 +383,47 @@ async function handle(req, res) {
       sendJson(res, 200, status);
     } catch (error) {
       logLine('stderr', `Start rejected: ${error.message}`);
+      sendJson(res, 400, { error: String(error.message) });
+    }
+    return;
+  }
+
+  if (route === 'GET /api/settings') {
+    sendJson(res, 200, settingsView());
+    return;
+  }
+
+  if (route === 'POST /api/settings') {
+    try {
+      const body = await readBody(req);
+      const patch = {};
+
+      if (typeof body.profileDir === 'string' && body.profileDir.trim()) {
+        const name = body.profileDir.trim();
+        // Only allow profile folders that exist inside the project, so the
+        // profile path can never be pointed somewhere unexpected.
+        if (!/^profile(-[\w.-]+)?$/.test(name) || !fs.existsSync(path.join(ROOT, name))) {
+          throw new Error(`Unknown profile "${name}". Pick one from the list.`);
+        }
+        patch.paths = { profileDir: name };
+      }
+      if (body.agent !== undefined) {
+        patch.generation = { ...(patch.generation ?? {}), agent: Boolean(body.agent) };
+      }
+      if (body.cooldownSeconds !== undefined) {
+        const value = Number(body.cooldownSeconds);
+        if (!Number.isFinite(value) || value < 0) throw new Error('Cooldown must be a positive number of seconds.');
+        patch.generation = { ...(patch.generation ?? {}), cooldownSeconds: value };
+      }
+
+      const saved = saveSettingsPatch(patch);
+      logLine(
+        'meta',
+        `Settings saved to ${saved.localFile}: profile "${saved.profileDir}"` +
+          `${saved.agent ? ', agent mode ON' : ''}, cooldown ${saved.cooldownSeconds}s.`,
+      );
+      sendJson(res, 200, saved);
+    } catch (error) {
       sendJson(res, 400, { error: String(error.message) });
     }
     return;

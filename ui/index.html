@@ -40,7 +40,6 @@
       header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
       header .sub { color: var(--muted); font-size: 12px; }
       .pill {
-        margin-left: auto;
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -101,6 +100,19 @@
       .check { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: 13px; }
       .check input { accent-color: var(--accent); width: 15px; height: 15px; }
 
+      .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .62); display: flex; align-items: center; justify-content: center; z-index: 50; }
+      .modal[hidden] { display: none; }
+      .modal-card {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+        padding: 22px; width: min(540px, 92vw); max-height: 88vh; overflow: auto;
+      }
+      .modal-card h2 { margin: 0 0 20px; font-size: 15px; font-weight: 600; }
+      .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
+      .modal-actions button { flex: 1; }
+      .saved { font-size: 11px; color: var(--muted); margin-top: 14px; min-height: 16px; }
+      .profile-line { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+      .profile-line b { color: var(--text); font-weight: 500; }
+
       .console-wrap { display: flex; flex-direction: column; min-height: 0; padding: 0; }
       .console-head {
         display: flex; align-items: center; gap: 10px;
@@ -132,7 +144,9 @@
     <header>
       <h1>FlowImagesGen</h1>
       <span class="sub">Google Flow batch image generation</span>
+      <span class="profile-line" id="profileLabel"></span>
       <span class="pill" id="status"><span class="dot"></span><span id="statusText">idle</span></span>
+      <button type="button" id="settingsBtn">Settings</button>
     </header>
 
     <main>
@@ -191,6 +205,46 @@
         <div id="console"><div class="empty">Waiting… output from the batch run appears here.</div></div>
       </section>
     </main>
+
+    <div class="modal" id="settingsModal" hidden>
+      <div class="modal-card">
+        <h2>Settings</h2>
+
+        <div class="field">
+          <label for="profileSelect">Google profile</label>
+          <select id="profileSelect"></select>
+          <div class="hint">
+            The browser profile decides which Google account generates. A profile that is not signed
+            in, or one whose account Flow has flagged, will be refused with "unusual activity".
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="check">
+            <input type="checkbox" id="agentToggle" />
+            Agent mode ON
+          </label>
+          <div class="hint">
+            Off keeps per-item control of model, aspect ratio and outputs. Turn this ON only if
+            generations start being refused — Agent OFF is what tips a distrusted session over.
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="cooldownInput">Cooldown after a refusal (seconds)</label>
+          <input type="text" id="cooldownInput" />
+          <div class="hint">
+            0 stops the batch at the first refusal, which is the safest for the account's standing.
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="primary" id="settingsSave">Save</button>
+          <button type="button" id="settingsClose">Close</button>
+        </div>
+        <div class="saved" id="settingsSaved"></div>
+      </div>
+    </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
@@ -354,6 +408,78 @@
         }
       });
 
+      function renderSettings(info) {
+        const select = $('profileSelect');
+        select.innerHTML = '';
+        for (const profile of info.profiles) {
+          const option = document.createElement('option');
+          option.value = profile.name;
+          option.textContent = profile.account
+            ? `${profile.name} — ${profile.account}`
+            : `${profile.name} (not signed in)`;
+          select.appendChild(option);
+        }
+        select.value = info.profileDir;
+        $('agentToggle').checked = info.agent;
+        $('cooldownInput').value = String(info.cooldownSeconds);
+        $('settingsSaved').textContent = `Saved to ${info.localFile}`;
+
+        // Surface the active account in the header so a wrong profile is obvious.
+        const active = info.profiles.find((p) => p.name === info.profileDir);
+        const label = $('profileLabel');
+        if (label) {
+          label.innerHTML = active
+            ? `profile <b>${active.name}</b>${active.account ? ` · <b>${active.account}</b>` : ' · not signed in'}`
+            : `profile <b>${info.profileDir}</b>`;
+        }
+      }
+
+      async function loadSettings() {
+        try {
+          renderSettings(await (await fetch('/api/settings')).json());
+        } catch (error) {
+          $('settingsSaved').textContent = 'Could not read settings: ' + error.message;
+        }
+      }
+
+      $('settingsBtn').addEventListener('click', async () => {
+        await loadSettings();
+        $('settingsModal').hidden = false;
+      });
+
+      $('settingsClose').addEventListener('click', () => {
+        $('settingsModal').hidden = true;
+      });
+
+      $('settingsModal').addEventListener('click', (event) => {
+        if (event.target === $('settingsModal')) $('settingsModal').hidden = true;
+      });
+
+      $('settingsSave').addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              profileDir: $('profileSelect').value,
+              agent: $('agentToggle').checked,
+              cooldownSeconds: Number($('cooldownInput').value),
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || res.statusText);
+          renderSettings(data);
+          appendLine(
+            `Settings saved: profile "${data.profileDir}"${data.agent ? ', agent mode ON' : ''}, ` +
+              `cooldown ${data.cooldownSeconds}s.`,
+            'meta',
+          );
+          $('settingsModal').hidden = true;
+        } catch (error) {
+          $('settingsSaved').textContent = 'Error: ' + error.message;
+        }
+      });
+
       function connect() {
         const events = new EventSource('/api/events');
         events.onmessage = (event) => {
@@ -380,6 +506,7 @@
 
       loadJobs();
       loadUpscale();
+      loadSettings();
       fetch('/api/status')
         .then((res) => res.json())
         .then((status) => setRunning(status.running, status))
