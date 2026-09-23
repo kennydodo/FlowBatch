@@ -205,10 +205,6 @@ export async function runJob({ job, driver, state, settings, options }) {
         const saved = [];
         for (let index = 0; index < outcome.added.length; index += 1) {
           const entry = outcome.added[index];
-          const current = await driver.snapshotAssets();
-          const match = current.entries.find((candidate) => candidate.key === entry.key);
-          const tileIndex = match ? match.index : entry.index;
-          const selector = current.selector ?? outcome.selector;
 
           // The job's `file` field names the output exactly, extension included.
           // Several results for one item get a numeric suffix before the extension.
@@ -218,19 +214,34 @@ export async function runJob({ job, driver, state, settings, options }) {
           const stem = outcome.added.length > 1 ? `${requestedStem}-${index + 1}` : requestedStem;
           let tempPath = path.join(job.outputsDir, `${stem}.download`);
 
-          // The tile's signed CDN URL serves the full-resolution still and needs
-          // no UI interaction, so try it first and fall back to the export menu.
+          // The tile's signed CDN URL serves the full-resolution still and needs no
+          // UI interaction, so try it first and fall back to the export menu.
+          // Retried, because a tile moves as the grid changes: failing the item here
+          // would abandon an image Flow has already generated and paid for, and the
+          // retry would leave a duplicate behind. The tile is re-resolved each
+          // attempt instead of trusting the index from the detection pass.
           let download = { method: null };
-          const body = await driver.fetchAssetBytes(tileIndex, { selector });
-          if (body) {
-            fs.writeFileSync(tempPath, body);
-            download = { method: 'cdn' };
-          } else {
+          for (let attempt = 1; attempt <= 3 && !download.method; attempt += 1) {
+            const current = await driver.snapshotAssets();
+            const located = current.entries.find((candidate) => candidate.key === entry.key);
+            const tileIndex = located ? located.index : entry.index;
+            const selector = current.selector ?? outcome.selector;
+            const body = await driver.fetchAssetBytes(tileIndex, { selector });
+            if (body) {
+              fs.writeFileSync(tempPath, body);
+              download = { method: 'cdn' };
+              break;
+            }
             download = await driver.downloadAsset(tileIndex, tempPath, { selector });
+            if (!download.method && attempt < 3) {
+              log.warn(`Could not save ${stem} (attempt ${attempt}/3); retrying.`);
+              await sleep(1500);
+            }
           }
           if (!download.method) {
             throw new GenerationError(
-              'Generated the asset but could not save it. Calibrate "assetMenuButton" and "downloadMenuItem".',
+              'Generated the asset but could not save it after 3 attempts. Calibrate "assetMenuButton" ' +
+                'and "downloadMenuItem".',
             );
           }
 

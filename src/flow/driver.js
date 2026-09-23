@@ -1110,6 +1110,8 @@ export class FlowDriver {
     await sleep(300);
 
     const button = await this.find('generateButton', { requireEnabled: true, timeout: 15000 });
+    // Whatever is already on screen is another item's outcome, not this one's.
+    await this.markStaleAlerts();
     await button.locator.click({ timeout: 20000 });
   }
 
@@ -1181,18 +1183,50 @@ export class FlowDriver {
   }
 
   /**
-   * Flow reports a refused generation in a transient tile and in a page-level
-   * message; neither is a normal "no result" state, so both are surfaced with
-   * the reason instead of a generic timeout.
+   * Tag every refusal / error element currently on screen.
+   *
+   * A banner left behind by an earlier item otherwise reads as THIS item's
+   * outcome: on a 156-item batch a single stale "You have not been charged for
+   * this generation" failed sixteen items in a row, twice each, while Flow was
+   * generating every one of them successfully.
    */
-  async detectRefusal() {
-    const found = await this.selectors.find(this.page, 'generationRefusal', {
-      timeout: 0,
-      required: false,
-    });
-    if (!found) return null;
-    const text = (await found.locator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-    return text || 'Flow reported a failed generation.';
+  async markStaleAlerts() {
+    for (const key of ['generationRefusal', 'errorBanner']) {
+      for (const selector of this.selectors.candidates(key)) {
+        const locator = this.page.locator(selector);
+        const count = await locator.count().catch(() => 0);
+        for (let index = 0; index < count; index += 1) {
+          await locator
+            .nth(index)
+            .evaluate((node) => node.setAttribute('data-flow-imagesgen-stale', '1'))
+            .catch(() => {});
+        }
+      }
+    }
+  }
+
+  /**
+   * The first refusal / error element that appeared since markStaleAlerts().
+   * Only that can belong to the generation just started; anything already on the
+   * page is another item's business.
+   */
+  async freshAlert(keys = ['generationRefusal', 'errorBanner']) {
+    for (const key of keys) {
+      for (const selector of this.selectors.candidates(key)) {
+        const locator = this.page.locator(selector);
+        const count = await locator.count().catch(() => 0);
+        for (let index = 0; index < count; index += 1) {
+          const node = locator.nth(index);
+          const stale = await node
+            .evaluate((element) => element.hasAttribute('data-flow-imagesgen-stale'))
+            .catch(() => true);
+          if (stale) continue;
+          const text = (await node.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+          if (text) return text;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -1269,6 +1303,7 @@ export class FlowDriver {
 
     let latest = before;
     let added = [];
+    let lastFresh = [];
     let seen = 0;
     let lastGrowthAt = Date.now();
 
@@ -1283,6 +1318,7 @@ export class FlowDriver {
       );
       // A result is served from the finished-asset host, never a grid placeholder.
       const fresh = changed.filter((entry) => isFinalResultUrl(entry.src));
+      if (fresh.length > 0) lastFresh = fresh;
       // A result must carry the redo control that only generated tiles have, and
       // its bytes must never have been seen this run. A tile that cannot be
       // positively identified is not accepted - the item times out and is retried
@@ -1295,9 +1331,11 @@ export class FlowDriver {
       const newest = expected === 1 ? candidates.slice(0, 1) : candidates;
       added = await this.ownNewAssets(newest);
 
-      // A refused generation shows up as a new tile, not as a new image.
+      // A refused generation shows up as a new tile, not as a new image. A page
+      // banner only counts when it appeared AFTER the click - a stale one belongs
+      // to an earlier item.
       const refusal = changed.find((entry) => entry.failed) ?? null;
-      const pageRefusal = refusal ? null : await this.detectRefusal();
+      const pageRefusal = refusal ? null : await this.freshAlert(['generationRefusal']);
       const refused = refusal ?? (pageRefusal ? { text: pageRefusal } : null);
       if (refused) {
         const throttled = /unusual activity/i.test(refused.text);
@@ -1323,14 +1361,8 @@ export class FlowDriver {
       if (settled) return { ...latest, added };
 
       if (added.length === 0) {
-        const banner = await this.selectors.find(this.page, 'errorBanner', {
-          timeout: 0,
-          required: false,
-        });
-        if (banner) {
-          const text = (await banner.locator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-          if (text) throw new GenerationError(`Flow reported an error while generating: ${text}`);
-        }
+        const banner = await this.freshAlert(['errorBanner']);
+        if (banner) throw new GenerationError(`Flow reported an error while generating: ${banner}`);
       }
 
       if (Date.now() >= deadline) break;
@@ -1338,9 +1370,27 @@ export class FlowDriver {
     }
 
     if (added.length > 0) return { ...latest, added };
+
+    // Salvage: the attempt produced a finished tile that could not be positively
+    // identified before the deadline. Saving it beats failing the item and
+    // generating a second copy on retry, which leaves an orphan in the project
+    // and wastes a generation. Ownership still applies, so an upload can never be
+    // salvaged, and a tile carrying the redo control is preferred.
+    const salvagePool = [...lastFresh].sort(
+      (a, b) => Number(b.canRedo) - Number(a.canRedo) || a.index - b.index,
+    );
+    const salvaged = await this.ownNewAssets(salvagePool.slice(0, Math.max(1, expected)));
+    if (salvaged.length > 0) {
+      log.warn(
+        `Salvaged ${salvaged.length} result(s) that could not be positively identified before the timeout.`,
+      );
+      return { ...latest, added: salvaged, salvaged: true };
+    }
+
     throw new TimeoutError(
-      `Timed out after ${Math.round((timeout ?? this.timeouts.generationMs) / 1000)}s waiting for a new asset. ` +
-        'Check the open browser window; if the generation finished, calibrate "assetTile".',
+      `No new result tile appeared within ${Math.round((timeout ?? this.timeouts.generationMs) / 1000)}s ` +
+        '(detection timeout, not a refusal). Check the open browser window; if the generation finished, ' +
+        'calibrate "assetTile".',
     );
   }
 
