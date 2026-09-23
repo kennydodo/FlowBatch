@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { sleep, timestampSlug } from '../lib/time.js';
 import { ensureParent, slugify } from '../lib/paths.js';
@@ -22,6 +23,24 @@ function normalizeModelName(value) {
     .toLowerCase();
 }
 
+/**
+ * Finished results are served from Flow's asset host; grid placeholders use
+ * flow.google.com/asb/…. Only the finished host counts as a result, whatever
+ * the tile's buttons happen to say.
+ */
+function isFinalResultUrl(src) {
+  try {
+    const url = new URL(src);
+    return url.hostname === 'flow-content.google' && /^\/image\//.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function hashBytes(buffer) {
+  return createHash('sha1').update(buffer).digest('hex');
+}
+
 export class FlowDriver {
   constructor({ page, context, selectors, settings }) {
     this.page = page;
@@ -33,6 +52,12 @@ export class FlowDriver {
     // Filenames already uploaded into the project during this run, so repeated
     // items reuse the asset instead of creating duplicates.
     this.uploadedRefNames = new Set();
+    // Byte ownership: every image already on the page when a generation starts is
+    // recorded here, so a reference upload - or a stale tile that swaps its src
+    // and looks new - can never be adopted as this item's result. This is the
+    // guarantee, not the tile's label or buttons.
+    this.seenAssetSrcs = new Set();
+    this.seenAssetHashes = new Set();
     this.page.on('download', (download) => this.downloads.push(download));
   }
 
@@ -987,6 +1012,7 @@ export class FlowDriver {
               });
               return {
                 key: src || node.getAttribute('data-testid') || node.getAttribute('id') || '',
+                src,
                 text: (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
                 hasImage: Boolean(src) && /^https?:/i.test(src),
                 canRedo,
@@ -1007,6 +1033,7 @@ export class FlowDriver {
         entries.push({
           index,
           key: info.key || `#${index}`,
+          src: info.src || '',
           text: info.text,
           uploaded,
           failed,
@@ -1061,7 +1088,7 @@ export class FlowDriver {
     return snapshot;
   }
 
-  async waitForNewAssets(before, expected, { timeout, excludeNames = [], referenceSizes = [] } = {}) {
+  async waitForNewAssets(before, expected, { timeout, excludeNames = [] } = {}) {
     const beforeKeys = new Set(before.entries.map((entry) => entry.key));
     // Reference tiles can appear or re-render after the snapshot; never mistake
     // one for a generated result.
@@ -1080,14 +1107,30 @@ export class FlowDriver {
           ),
       );
     const isExcluded = (entry) => excluded.some((pattern) => pattern.test(entry.text));
+    const isReferenceTile = (entry) => entry.uploaded || isExcluded(entry);
 
     // A reference tile can also render with an empty label, which no name check
-    // can catch. A generated still is never the same pixel size as a reference,
-    // so a candidate that echoes a reference's dimensions is not a result.
+    // can catch. Compare against the size a reference RENDERS at, not the size of
+    // its source file: Flow serves a scaled rendition, so a 5504x3072 background
+    // shows as a 3200x1786 tile, and a file-dimension check could never match.
+    // Recorded from every snapshot so a reference that mounts late is still seen.
+    const referenceRenditions = new Set();
+    const noteReferenceRenditions = (entries) => {
+      for (const entry of entries) {
+        if (isReferenceTile(entry) && entry.width > 0 && entry.height > 0) {
+          referenceRenditions.add(`${entry.width}x${entry.height}`);
+        }
+      }
+    };
+    noteReferenceRenditions(before.entries);
     const echoesReference = (entry) =>
-      entry.width > 0 &&
-      entry.height > 0 &&
-      referenceSizes.some((size) => size.width === entry.width && size.height === entry.height);
+      entry.width > 0 && entry.height > 0 && referenceRenditions.has(`${entry.width}x${entry.height}`);
+
+    // Byte ownership, the guarantee Renderly relies on: everything already on the
+    // page when this generation starts is hashed, so an upload - or a stale tile
+    // that swaps its src and looks new - can never be adopted as the result.
+    await this.noteSeenAssets(before.entries);
+
     const deadline = Date.now() + (timeout ?? this.timeouts.generationMs);
     const settleMs = expected > 1 ? 15000 : 6000;
 
@@ -1099,27 +1142,32 @@ export class FlowDriver {
     for (;;) {
       const snapshot = await this.snapshotAssets();
       if (snapshot.entries.length > 0) latest = snapshot;
+      noteReferenceRenditions(latest.entries);
 
-      // New, non-upload tiles that carry a real image are candidates. Prefer ones
-      // offering "redo", which only generated results do.
-      const fresh = latest.entries.filter(
-        (entry) =>
-          !beforeKeys.has(entry.key) && !entry.uploaded && !isExcluded(entry) && !echoesReference(entry),
+      // Only the newest tile can be this item's result, so the rest of the grid is
+      // recorded as seen; a candidate is then judged by bytes never seen before.
+      await this.noteSeenAssets(latest.entries.filter((entry) => entry.index !== 0));
+
+      // Tiles that changed since the snapshot and are not references.
+      const changed = latest.entries.filter(
+        (entry) => !beforeKeys.has(entry.key) && !isReferenceTile(entry) && !echoesReference(entry),
       );
-      // Require the "redo" control that only generated tiles carry. Falling back
-      // to any image-bearing tile is how a reference got saved as a result, so a
-      // tile that cannot be positively identified is not accepted - the item
-      // times out and is retried instead.
+      // A result is served from the finished-asset host, never a grid placeholder.
+      const fresh = changed.filter((entry) => isFinalResultUrl(entry.src));
+      // A result must carry the redo control that only generated tiles have, and
+      // its bytes must never have been seen this run. A tile that cannot be
+      // positively identified is not accepted - the item times out and is retried
+      // rather than silently saving the wrong image.
       const candidates = fresh.filter((entry) => entry.hasImage && entry.canRedo);
-      // For a single output, only the NEWEST tile can be the result. An older
-      // tile that lazily swaps to its full-res variant looks new but is not one,
-      // and cannot be downloaded - which is how a run saved one good image and
-      // then failed on a phantom second.
-      const newest = candidates.filter((entry) => entry.index === 0);
-      added = expected === 1 && newest.length > 0 ? newest : candidates;
+      // For a single output, only the NEWEST tile (index 0) can be the result. An
+      // older tile that lazily swaps to its full-res variant looks new but is not
+      // one, and accepting it is how a run saved a stale image. There is no
+      // fallback: an unidentifiable tile times out and is retried instead.
+      const newest = expected === 1 ? candidates.filter((entry) => entry.index === 0) : candidates;
+      added = await this.ownNewAssets(newest);
 
       // A refused generation shows up as a new tile, not as a new image.
-      const refusal = fresh.find((entry) => entry.failed) ?? null;
+      const refusal = changed.find((entry) => entry.failed) ?? null;
       const pageRefusal = refusal ? null : await this.detectRefusal();
       const refused = refusal ?? (pageRefusal ? { text: pageRefusal } : null);
       if (refused) {
@@ -1230,6 +1278,14 @@ export class FlowDriver {
    * the browser context can fetch with its own cookies. No UI interaction, so
    * it cannot disturb the page.
    */
+  async fetchBytes(src) {
+    if (!src || !/^https?:/i.test(src)) return null;
+    const response = await this.context.request.get(src).catch(() => null);
+    if (!response || !response.ok()) return null;
+    const body = await response.body().catch(() => null);
+    return body && body.length > 0 ? body : null;
+  }
+
   async fetchAssetBytes(tileIndex, { selector }) {
     const src = await this.page
       .locator(selector)
@@ -1239,11 +1295,40 @@ export class FlowDriver {
         return img ? img.currentSrc || img.getAttribute('src') || '' : '';
       })
       .catch(() => '');
-    if (!src || !/^https?:/i.test(src)) return null;
-    const response = await this.context.request.get(src).catch(() => null);
-    if (!response || !response.ok()) return null;
-    const body = await response.body().catch(() => null);
-    return body && body.length > 0 ? body : null;
+    return this.fetchBytes(src);
+  }
+
+  /**
+   * Record the bytes of tiles already on the page. A src is hashed once per run,
+   * so this stays cheap as the grid fills up: only tiles that are new since the
+   * previous call cost a request.
+   */
+  async noteSeenAssets(entries) {
+    for (const entry of entries) {
+      if (!entry.hasImage || !entry.src || this.seenAssetSrcs.has(entry.src)) continue;
+      this.seenAssetSrcs.add(entry.src);
+      const bytes = await this.fetchBytes(entry.src);
+      if (bytes) this.seenAssetHashes.add(hashBytes(bytes));
+    }
+  }
+
+  /**
+   * Keep only the candidates whose bytes have never been seen this run, and mark
+   * them seen. This is what stops a reference upload, or a reused tile, from being
+   * saved as a generation.
+   */
+  async ownNewAssets(entries) {
+    const owned = [];
+    for (const entry of entries) {
+      const bytes = await this.fetchBytes(entry.src);
+      if (!bytes) continue;
+      const hash = hashBytes(bytes);
+      if (this.seenAssetHashes.has(hash)) continue;
+      this.seenAssetHashes.add(hash);
+      this.seenAssetSrcs.add(entry.src);
+      owned.push(entry);
+    }
+    return owned;
   }
 
   /**
