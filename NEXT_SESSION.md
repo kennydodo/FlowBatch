@@ -2,100 +2,83 @@
 
 Handover notes. Delete this file once the list is clear.
 
-## Where things stand
+## TL;DR
 
-The pipeline works end to end and is verified: reference attachment by name, generation with and
-without references, exact-filename PNG output, and 2K upscaling on the GPU. A multi-item batch has
-run successfully.
+The pipeline works. **23 of 85 shots are done**, 62 pending. Batch runs should use the
+`profile-renderly` profile (the account with good standing) — now the default, so no flags needed.
 
-**Batch state** (`state/shotlist.json`): 4 done, 1 failed, 81 pending.
+## Current state
 
-| Item | Status | Note |
-| --- | --- | --- |
-| `S01_02_CU_ZI` | done | visually verified, references and style applied |
-| `S01_03_SCN_PL` | done | |
-| `S02_01_HOST_ZI` | done | |
-| `S01_01_HYB_PR` | **failed** | prompt too long (2510 chars), refused 3× |
-| 81 others | pending | |
+| | |
+| --- | --- |
+| Branch | **`experiment/no-reload`** (9 commits, nothing pushed) |
+| Fallback | `main` — pre-experiment, tag `known-good-before-no-reload` |
+| Done / pending | 23 done, 62 pending, 0 failed |
+| Default profile | `profile-renderly` → **koogunyemi@gmail.com** (set via the new Settings page) |
+| Upscale tier | 1K → 1920×1080, supersampled |
+| Outputs | `output/shotlist/<file>.png` master + `_1k.png` |
 
-Key paths and values:
+The shotlist: `E:\YOUTUBE\PERSONAL FINANCE\These 10 Things At Home Worth Serious Money\shotlist.json`
+Project: `https://flow.google.com/project/772a62aa-c204-4473-a27b-5e106a7f0b06`
 
-- Shotlist: `E:\YOUTUBE\PERSONAL FINANCE\These 10 Things At Home Worth Serious Money\shotlist.json`
-- Flow project: `https://flow.google.com/project/b9973189-0df6-4e9d-9cf4-2eb4175ff9f8`
-  (the shotlist has no `projectUrl`, so pass `--project-url` or it creates a **new project** and
-  re-uploads all 27 references)
-- References already in that project: `Maya`, `BG_LIVING_ROOM_01`, `BG_GARAGE_01`, plus the
-  `character-a` / `street-style` / `alice-*` / `bob-front` test images. Others upload from `E:` on
-  first use — the `BG_*.png` set is 14–18 MB each.
+## The thing that mattered most: account standing
 
-## 1. ~~Trim the `style`~~ — DONE
+Generation is gated by **reCAPTCHA Enterprise** and the score belongs to the **signed-in account**.
+Measured directly, same code and settings:
 
-The style was cut from 1858 to **1495 characters** (258 → 200 words). Verified:
+- `koogunyemi@gmail.com` (paid account) → generates normally
+- `japanliveshealthy@gmail.com` → refused every time, ~3s, *"We noticed some unusual activity"*
 
-| | Before | After |
-| --- | --- | --- |
-| `style` | 1858 chars | **1495** |
-| Total per item | 2273–2536 | **1910–2173** |
-| Items over 2420 | 26 | **0** |
+That refusal is **not** a rate limit: waiting does not help, and each attempt lowers the standing
+further. Do not retry it. `--agent on` is the escape hatch on a distrusted session, and switching
+account is the real fix.
 
-277 characters of headroom at the longest prompt, and the load-time length warning is gone. All 85
-prompts fit. Keep the style under ~1800 characters when editing it so this stays true.
+## 1. Verify the reference-dimension guard (untested)
 
-## 2. Skip-and-continue on over-long prompts
-
-**Not implemented.** A refusal is treated as non-retryable and **aborts the whole batch**, so one
-over-long prompt ends the run with the rest left `pending` — 0 images instead of 59.
-
-Flow uses the identical "unusual activity" message for throttling and for over-long prompts, so they
-must be told apart by inference: if the refused item's prompt exceeds `maxPromptChars`, it is a
-length problem → fail that item and continue; otherwise assume rate limiting → stop.
-
-Files: `src/flow/driver.js` (`waitForNewAssets` sets `retryable: false`), `src/runner/run.js`
-(`error.retryable === false` → `aborted = true`).
-
-## 3. Re-run the batch
-
-**Unblocked** — every prompt now fits under the ceiling. `S01_01_HYB_PR` is the only failed item and
-81 remain. Run in chunks rather than all 85 at once:
+The last commit adds a check rejecting a result tile whose pixel size matches a reference image,
+after one item (S08_01) saved a copy of its background instead of the generation. **This has not
+been exercised against a live generation.** Run a few items and confirm every master is 1376×768:
 
 ```powershell
-npm run generate -- --job "<shotlist>" --limit 15 --project-url "<project url>"
+npm run generate -- --job "<shotlist>" --limit 5
 ```
 
-Resume skips completed items automatically. Check the account is generating first with:
+then check `output/shotlist` — any master that is not 1376×768 is a wrong-tile save. S08_01 was reset
+to pending so it will be retried.
 
-```powershell
-npm run generate -- --job config/jobs.verify.json --only no-ref
-```
+## 2. Run the rest
 
-## 4. Unverified paths
+`npm run ui` or `FlowImagesGen.bat` — the page works and uses the saved profile. The job dropdown only
+lists `config/`, so paste the shotlist path into the Job JSON field. Chunks of 15 have run clean
+(15/15, no refusals).
 
-None of these have ever run successfully:
+## 3. Housekeeping
 
-- `refMode: "mention"` — implemented, never exercised.
-- **4:3 / 3:4 / 1:1 tier outputs** — shared code path with 9:16 (which works), never run.
-- `outputs: 2+` — the `-2` / `-3` naming logic is written, never run.
-- `--pause-on-error`, `--fail-fast`, `--headless` — never run.
-- **Video mode** — `mode: "video"` is accepted and `ensureMode` handles it, never run.
-- Web UI native folder/file dialogs — the API endpoints were tested, the PowerShell dialogs never
-  opened.
+- **Nothing is pushed.** 9 commits on `experiment/no-reload`; decide whether to merge to `main`.
+- `profile-fresh` and `profile-test` are dead (~300 MB) and can be deleted.
+- `profile-renderly` is a **copy** of Renderly's profile. It works, but a dedicated profile signed in
+  as `koogunyemi@gmail.com` would be cleaner and avoids sharing a session with Renderly.
+- `output/shotlist` has a few `_2k.png` files from when the tier was 2K, and `S01_01_HYB_PR-1*` was
+  removed. Harmless.
 
-## 5. Known gotchas (do not re-derive)
+## Known gotchas (do not re-derive)
 
+- **Agent mode OFF is the default and preferred** — it keeps per-item model/ratio/output control. It
+  works on a healthy account. On a distrusted one it is what tips a generation over; `--agent on`
+  then works, but hides the prompt-box settings, which then come from the project panel (gear icon).
 - **Never identify a result tile by image `src`.** A tile's `src` changes when its thumbnail lazily
-  loads; a 15 MB reference upload was once downloaded as the output under the shot's filename.
-  Results require: new tile, not an upload, not matching a reference name, preferably exposing a
-  `redo` control. `waitForGridToSettle()` must run after references are attached.
-- **Clicking an asset in the library has two behaviours** — it either attaches and closes, or selects
-  and needs "Add to prompt". Both occur; the confirm step is conditional.
-- **Agent mode must be OFF** or the prompt-box settings trigger is hidden.
+  loads. Results need: new tile, not an upload, not matching a reference name, not echoing a
+  reference's dimensions, and carrying the `redo` control.
+- **The Flow page loads once per batch.** Between items the composer is cleared in place. Do not
+  reintroduce a per-item reload — 84 reloads per batch is what most likely flagged the old account.
+- **Ingredient chips live in `flow-ingredient-bar`, not inside the editor.** Select-all in the editor
+  does not remove them; each chip has its own remove control that must be clicked.
 - **Model names are prefixes of one another** ("Nano Banana 2" vs "Nano Banana 2 Lite") — matching
-  must be exact, never substring.
-- **A refusal ends the run**, so check prompt length before blaming throttling.
-- Throttle recovery observed: ~4 hours, then ~2h40m. It appears to scale with how hard the account
-  was pushed.
+  must be exact.
+- **Prompt length ceiling is ~2450 characters** for style + scene combined.
+- Deleting a `running` item's status is unnecessary — stale `running` resets to `pending` on load.
 
 ## Not wanted
 
 - `shots` metadata (`cues`, `scene`, `motion`, `transition`) — parsed away on purpose.
-- No git remote is configured in this clone.
+- `refMode: "mention"` — implemented, never verified; `reuse` is what works.
