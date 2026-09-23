@@ -974,6 +974,8 @@ export class FlowDriver {
               key: src || node.getAttribute('data-testid') || node.getAttribute('id') || '',
               text: (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
               hasImage: Boolean(src) && /^https?:/i.test(src),
+              width: img ? img.naturalWidth : 0,
+              height: img ? img.naturalHeight : 0,
             };
           })
           .catch(() => ({ key: '', text: '' }));
@@ -994,6 +996,8 @@ export class FlowDriver {
           failed,
           canRedo,
           hasImage: info.hasImage,
+          width: info.width,
+          height: info.height,
         });
       }
       // The grid is a virtual scroller, so only rendered tiles are present.
@@ -1041,7 +1045,7 @@ export class FlowDriver {
     return snapshot;
   }
 
-  async waitForNewAssets(before, expected, { timeout, excludeNames = [] } = {}) {
+  async waitForNewAssets(before, expected, { timeout, excludeNames = [], referenceSizes = [] } = {}) {
     const beforeKeys = new Set(before.entries.map((entry) => entry.key));
     // Reference tiles can appear or re-render after the snapshot; never mistake
     // one for a generated result.
@@ -1050,6 +1054,14 @@ export class FlowDriver {
       .map((name) => name.toLowerCase())
       .filter(Boolean);
     const isExcluded = (entry) => excluded.some((name) => entry.text.toLowerCase().includes(name));
+
+    // A reference tile can also render with an empty label, which no name check
+    // can catch. A generated still is never the same pixel size as a reference,
+    // so a candidate that echoes a reference's dimensions is not a result.
+    const echoesReference = (entry) =>
+      entry.width > 0 &&
+      entry.height > 0 &&
+      referenceSizes.some((size) => size.width === entry.width && size.height === entry.height);
     const deadline = Date.now() + (timeout ?? this.timeouts.generationMs);
     const settleMs = expected > 1 ? 15000 : 6000;
 
@@ -1065,10 +1077,14 @@ export class FlowDriver {
       // New, non-upload tiles that carry a real image are candidates. Prefer ones
       // offering "redo", which only generated results do.
       const fresh = latest.entries.filter(
-        (entry) => !beforeKeys.has(entry.key) && !entry.uploaded && !isExcluded(entry),
+        (entry) =>
+          !beforeKeys.has(entry.key) && !entry.uploaded && !isExcluded(entry) && !echoesReference(entry),
       );
-      const withRedo = fresh.filter((entry) => entry.hasImage && entry.canRedo);
-      const candidates = withRedo.length > 0 ? withRedo : fresh.filter((entry) => entry.hasImage);
+      // Require the "redo" control that only generated tiles carry. Falling back
+      // to any image-bearing tile is how a reference got saved as a result, so a
+      // tile that cannot be positively identified is not accepted - the item
+      // times out and is retried instead.
+      const candidates = fresh.filter((entry) => entry.hasImage && entry.canRedo);
       // For a single output, only the NEWEST tile can be the result. An older
       // tile that lazily swaps to its full-res variant looks new but is not one,
       // and cannot be downloaded - which is how a run saved one good image and

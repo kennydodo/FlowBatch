@@ -162,6 +162,16 @@ export function toRgb(image) {
   return { width, height, channels: 3, data: out };
 }
 
+/**
+ * Read only the IHDR, without inflating the image. Used to compare a candidate
+ * result against the reference images, which can be 15 MB each.
+ */
+export function pngDimensions(buffer) {
+  if (buffer.length < 24 || !buffer.subarray(0, 8).equals(SIGNATURE)) return null;
+  if (buffer.toString('latin1', 12, 16) !== 'IHDR') return null;
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
 export function encodePng({ width, height, channels, data }) {
   const colorType = channels === 4 ? 6 : 2;
   const stride = width * channels;

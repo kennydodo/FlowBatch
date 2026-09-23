@@ -7,6 +7,7 @@ import { ROOT } from '../lib/paths.js';
 import { sleep } from '../lib/time.js';
 import { GenerationError } from '../lib/errors.js';
 import { sniffImageExtension } from '../lib/image.js';
+import { pngDimensions } from '../upscale/png.js';
 import { engineLabel, loadUpscaleSettings, upscaleImage } from '../upscale/index.js';
 import { STATUS } from './state.js';
 
@@ -111,6 +112,27 @@ export async function runJob({ job, driver, state, settings, options }) {
     await driver.ensureProject(job.project);
   }
 
+  // Reference pixel sizes, read once per run. A candidate result that matches one
+  // is a reference tile, not a generation, and must be rejected.
+  const refSizeCache = new Map();
+  const referenceSizesFor = (refs) =>
+    refs
+      .map((ref) => ref.path)
+      .filter(Boolean)
+      .map((file) => {
+        if (!refSizeCache.has(file)) {
+          let size = null;
+          try {
+            size = fs.existsSync(file) ? pngDimensions(fs.readFileSync(file)) : null;
+          } catch {
+            size = null;
+          }
+          refSizeCache.set(file, size);
+        }
+        return refSizeCache.get(file);
+      })
+      .filter(Boolean);
+
   const upscale = loadUpscaleSettings();
   const upscaleEnabled = upscale.tier !== 'off';
   if (upscaleEnabled) log.info(`Upscaling every result to ${upscale.tier.toUpperCase()} (${upscale.model}).`);
@@ -200,6 +222,7 @@ export async function runJob({ job, driver, state, settings, options }) {
         const outcome = await driver.waitForNewAssets(before, expected, {
           timeout: item.timeoutMs ?? settings.timeouts.generationMs,
           excludeNames: item.refNames,
+          referenceSizes: referenceSizesFor(item.refs),
         });
 
         const saved = [];
