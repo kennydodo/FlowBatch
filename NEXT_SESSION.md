@@ -11,8 +11,9 @@ The pipeline works. **23 of 85 shots are done**, 62 pending. Batch runs should u
 
 | | |
 | --- | --- |
-| Branch | **`experiment/no-reload`** (9 commits, nothing pushed) |
-| Fallback | `main` — pre-experiment, tag `known-good-before-no-reload` |
+| Branch | **`main`** — all the working code lives here |
+| Remote | `origin/main` exists; `main` is ahead and needs pushing |
+| Also kept | `experiment/no-reload` (same commit) and tag `known-good-before-no-reload` |
 | Done / pending | 23 done, 62 pending, 0 failed |
 | Default profile | `profile-renderly` → **koogunyemi@gmail.com** (set via the new Settings page) |
 | Upscale tier | 1K → 1920×1080, supersampled |
