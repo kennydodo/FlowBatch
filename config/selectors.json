@@ -227,6 +227,12 @@
     "button[aria-label*='reuse prompt' i]"
   ],
 
+  "overlayPane": [
+    ".cdk-overlay-container > .cdk-overlay-popover",
+    ".cdk-overlay-container > .cdk-overlay-connected-position-bounding-box",
+    ".cdk-overlay-container > .cdk-overlay-backdrop"
+  ],
+
   "assetMenuButton": [
     "button[aria-label='More options']",
     "button[aria-label*='more options' i]"

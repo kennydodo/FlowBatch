@@ -635,6 +635,29 @@ export class FlowDriver {
     return this.selectors.exists(this.page, 'assetPickerDialog', { timeout: 0 });
   }
 
+  /** Any CDK popover still on screen - the asset library, a menu, a settings panel. */
+  async overlayIsOpen() {
+    for (const selector of this.selectors.candidates('overlayPane')) {
+      const count = await this.page.locator(`${selector}:visible`).count().catch(() => 0);
+      if (count > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Dismiss anything still covering the prompt box. The asset library has its own
+   * close, but a plain CDK popover - left open by a menu or a retry - covers the
+   * Generate button and is not matched by pickerIsOpen, so Escape it away.
+   */
+  async dismissOverlays({ attempts = 4 } = {}) {
+    for (let index = 0; index < attempts; index += 1) {
+      if (!(await this.overlayIsOpen())) return true;
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await sleep(400);
+    }
+    return !(await this.overlayIsOpen());
+  }
+
   /** Wait until the picker has marked the freshly uploaded assets as selected. */
   async waitForUploadToSettle({ expected = 1, timeout = 120000 } = {}) {
     const deadline = Date.now() + timeout;
@@ -676,13 +699,25 @@ export class FlowDriver {
         'The asset library did not offer "Upload media". Calibrate "addMediaOption" in config/selectors.json.',
       );
     }
+    // "Upload media" spawns the hidden file input, and clicking it opens the OS
+    // file dialog. Intercept that chooser so the native window is never shown:
+    // setting the files on the input afterwards still uploads them, but leaves
+    // the OS dialog sitting on top of the page.
+    const chooserPromise = this.page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
     await mediaOption.locator.click();
-
-    const input = await this.waitForFileInput(8000);
-    if (!input) {
-      throw new Error('No file input appeared after choosing "Upload media". Calibrate "fileInput" in config/selectors.json.');
+    const chooser = await chooserPromise;
+    if (chooser) {
+      log.debug('Intercepted the OS file chooser; the native dialog is not shown.');
+      await chooser.setFiles(files);
+    } else {
+      const input = await this.waitForFileInput(8000);
+      if (!input) {
+        throw new Error(
+          'No file input appeared after choosing "Upload media". Calibrate "fileInput" in config/selectors.json.',
+        );
+      }
+      await input.setInputFiles(files);
     }
-    await input.setInputFiles(files);
     // Flow must upload and thumbnail the file before it can be attached. Large
     // references (the BG_*.png set is 14-18 MB each) need real time here, so
     // wait for the picker to actually mark the upload as selected.
@@ -972,9 +1007,10 @@ export class FlowDriver {
   // -------------------------------------------------------------- generation
 
   async generate() {
-    // An open popover (the asset library, a menu) covers the Generate button and
-    // makes the click time out, so clear anything still on screen first.
+    // An open popover (the asset library, a menu left open by a retry) covers the
+    // Generate button and makes the click time out, so clear anything on screen.
     await this.closeAssetLibrary();
+    await this.dismissOverlays();
     await this.page.keyboard.press('Escape').catch(() => {});
     await sleep(300);
 
@@ -1128,7 +1164,9 @@ export class FlowDriver {
 
     // Byte ownership, the guarantee Renderly relies on: everything already on the
     // page when this generation starts is hashed, so an upload - or a stale tile
-    // that swaps its src and looks new - can never be adopted as the result.
+    // that swaps its src and looks new - can never be adopted as the result. Only
+    // this baseline seeds ownership: re-hashing during the wait would mark the
+    // result itself as seen (a late-mounting reference can push it off index 0).
     await this.noteSeenAssets(before.entries);
 
     const deadline = Date.now() + (timeout ?? this.timeouts.generationMs);
@@ -1144,10 +1182,6 @@ export class FlowDriver {
       if (snapshot.entries.length > 0) latest = snapshot;
       noteReferenceRenditions(latest.entries);
 
-      // Only the newest tile can be this item's result, so the rest of the grid is
-      // recorded as seen; a candidate is then judged by bytes never seen before.
-      await this.noteSeenAssets(latest.entries.filter((entry) => entry.index !== 0));
-
       // Tiles that changed since the snapshot and are not references.
       const changed = latest.entries.filter(
         (entry) => !beforeKeys.has(entry.key) && !isReferenceTile(entry) && !echoesReference(entry),
@@ -1159,11 +1193,11 @@ export class FlowDriver {
       // positively identified is not accepted - the item times out and is retried
       // rather than silently saving the wrong image.
       const candidates = fresh.filter((entry) => entry.hasImage && entry.canRedo);
-      // For a single output, only the NEWEST tile (index 0) can be the result. An
-      // older tile that lazily swaps to its full-res variant looks new but is not
-      // one, and accepting it is how a run saved a stale image. There is no
-      // fallback: an unidentifiable tile times out and is retried instead.
-      const newest = expected === 1 ? candidates.filter((entry) => entry.index === 0) : candidates;
+      // The newest non-reference candidate is the result. It is not always at
+      // index 0: a reference tile can mount after the generation and land above
+      // it, which is how a real result was skipped and the item timed out. Entries
+      // are in grid order, so the first candidate is the newest one.
+      const newest = expected === 1 ? candidates.slice(0, 1) : candidates;
       added = await this.ownNewAssets(newest);
 
       // A refused generation shows up as a new tile, not as a new image.
