@@ -373,10 +373,16 @@ export async function runJob({ job, driver, state, settings, options }) {
         if (willRetry) {
           log.warn(`Retrying "${item.id}" in ${Math.round(retryDelayMs / 1000)}s…`);
           await sleep(retryDelayMs);
-          // With resetMode "reload" the next attempt reloads anyway; only recover here for "clear".
+          // Recover in place. A retry used to reload the whole Flow app, which is
+          // slow and is exactly the per-item reload the batch is meant to avoid;
+          // the composer survives an in-place clear. Reloading is a last resort
+          // for when the composer will not come clean.
           if (resetMode !== 'reload') {
-            await driver.reload().catch(() => {});
-            if (reapply) await driver.applyGenerationSettings(genSettings).catch(() => {});
+            const cleared = await driver.clearComposerForNextItem().catch(() => false);
+            if (!cleared) {
+              await driver.reload().catch(() => {});
+              if (reapply) await driver.applyGenerationSettings(genSettings).catch(() => {});
+            }
           }
         }
       }

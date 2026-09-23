@@ -958,6 +958,7 @@ export class FlowDriver {
   }
 
   async snapshotAssets() {
+    const redoSelectors = this.selectors.candidates('tileRedoButton');
     for (const selector of this.selectors.candidates('assetTile')) {
       const tiles = this.page.locator(selector);
       const count = await tiles.count().catch(() => 0);
@@ -967,27 +968,42 @@ export class FlowDriver {
       for (let index = 0; index < count; index += 1) {
         const info = await tiles
           .nth(index)
-          .evaluate((node) => {
-            const img = node.tagName === 'IMG' ? node : node.querySelector('img');
-            const src = img ? img.currentSrc || img.getAttribute('src') || '' : '';
-            return {
-              key: src || node.getAttribute('data-testid') || node.getAttribute('id') || '',
-              text: (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
-              hasImage: Boolean(src) && /^https?:/i.test(src),
-              width: img ? img.naturalWidth : 0,
-              height: img ? img.naturalHeight : 0,
-            };
-          })
+          .evaluate(
+            (node, redoSel) => {
+              const img = node.tagName === 'IMG' ? node : node.querySelector('img');
+              const src = img ? img.currentSrc || img.getAttribute('src') || '' : '';
+              // The redo control ("Reuse prompt") exists only on a generated
+              // result, so it is the discriminator - but it must be read from the
+              // DOM. innerText is empty on these tiles, and the textContent
+              // fallback concatenates the icon ligatures into
+              // "favoriteredomore_vert" with no word boundary to match on, which
+              // is why a text regex missed real results.
+              const canRedo = redoSel.some((sel) => {
+                try {
+                  return node.matches(sel) || Boolean(node.querySelector(sel));
+                } catch {
+                  return false;
+                }
+              });
+              return {
+                key: src || node.getAttribute('data-testid') || node.getAttribute('id') || '',
+                text: (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+                hasImage: Boolean(src) && /^https?:/i.test(src),
+                canRedo,
+                width: img ? img.naturalWidth : 0,
+                height: img ? img.naturalHeight : 0,
+              };
+            },
+            redoSelectors,
+          )
           .catch(() => ({ key: '', text: '' }));
         // Uploaded references are labelled with their filename; generated stills
         // are not. Used to keep uploads out of "new result" detection.
         const uploaded = /\.(png|jpe?g|webp|gif|heic?|mp4|m4v|mov|avi|3gp)\b/i.test(info.text);
         // Flow reports a refused generation inside the tile itself.
         const failed = /\b(failed|unusual activity|not been charged|try again)\b/i.test(info.text);
-        // Generated tiles offer "redo"; uploaded references never do. That is a
-        // far more reliable discriminator than the image src, which changes when
-        // a thumbnail lazily loads and made uploads look like new results.
-        const canRedo = /\bredo\b/i.test(info.text);
+        // Generated tiles offer "redo"; uploaded references never do.
+        const canRedo = info.canRedo === true;
         entries.push({
           index,
           key: info.key || `#${index}`,
@@ -1049,11 +1065,21 @@ export class FlowDriver {
     const beforeKeys = new Set(before.entries.map((entry) => entry.key));
     // Reference tiles can appear or re-render after the snapshot; never mistake
     // one for a generated result.
+    // Reference tiles are labelled with their filename ("Maya.png"), while a
+    // generated still is auto-named after the prompt ("Maya holding perfume
+    // bottles"). Match the filename form only: a bare-name substring test threw
+    // away real results whenever the prompt happened to name the reference.
     const excluded = excludeNames
       .flatMap((name) => [name, name.replace(/\.[a-z0-9]+$/i, '')])
-      .map((name) => name.toLowerCase())
-      .filter(Boolean);
-    const isExcluded = (entry) => excluded.some((name) => entry.text.toLowerCase().includes(name));
+      .filter(Boolean)
+      .map(
+        (name) =>
+          new RegExp(
+            `${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(png|jpe?g|webp|gif|heic?|mp4|m4v|mov|avi|3gp)\\b`,
+            'i',
+          ),
+      );
+    const isExcluded = (entry) => excluded.some((pattern) => pattern.test(entry.text));
 
     // A reference tile can also render with an empty label, which no name check
     // can catch. A generated still is never the same pixel size as a reference,

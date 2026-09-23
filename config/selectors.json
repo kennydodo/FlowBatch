@@ -222,6 +222,11 @@
     "img"
   ],
 
+  "tileRedoButton": [
+    "button[aria-label='Reuse prompt']",
+    "button[aria-label*='reuse prompt' i]"
+  ],
+
   "assetMenuButton": [
     "button[aria-label='More options']",
     "button[aria-label*='more options' i]"
