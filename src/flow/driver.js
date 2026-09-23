@@ -1371,14 +1371,16 @@ export class FlowDriver {
 
     if (added.length > 0) return { ...latest, added };
 
-    // Salvage: the attempt produced a finished tile that could not be positively
-    // identified before the deadline. Saving it beats failing the item and
-    // generating a second copy on retry, which leaves an orphan in the project
-    // and wastes a generation. Ownership still applies, so an upload can never be
-    // salvaged, and a tile carrying the redo control is preferred.
-    const salvagePool = [...lastFresh].sort(
-      (a, b) => Number(b.canRedo) - Number(a.canRedo) || a.index - b.index,
-    );
+    // Salvage: the attempt produced a finished tile that could not be claimed
+    // before the deadline (a transient byte fetch, or the settle window). Saving
+    // it beats failing the item and generating a second copy on retry, which
+    // leaves an orphan in the project and wastes a generation.
+    //
+    // Only a tile that still carries the redo control is salvaged. That control is
+    // what proves the tile is a generation rather than a reference, and keeping it
+    // mandatory is what makes a wrong save impossible - without it the item times
+    // out as before rather than risking a reference being written as the result.
+    const salvagePool = lastFresh.filter((entry) => entry.canRedo);
     const salvaged = await this.ownNewAssets(salvagePool.slice(0, Math.max(1, expected)));
     if (salvaged.length > 0) {
       log.warn(
