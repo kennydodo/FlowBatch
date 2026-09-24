@@ -802,45 +802,6 @@ export class FlowDriver {
   }
 
   /**
-   * Upload a local file into the project gallery, without attaching it to the
-   * prompt box. The picker is closed with Escape rather than "Add to prompt", so
-   * the asset lands in the project and no chip is added - a prepare run only
-   * needs the asset to exist. Returns true when the picker confirmed the upload.
-   */
-  async uploadReferenceToGallery(file) {
-    await this.openAssetLibrary();
-
-    const mediaOption = await this.find('addMediaOption', { timeout: 8000, required: false });
-    if (!mediaOption) {
-      await this.closeAssetLibrary();
-      log.warn('The asset library did not offer "Upload media". Calibrate "addMediaOption".');
-      return false;
-    }
-
-    const chooserPromise = this.page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
-    await mediaOption.locator.click();
-    const chooser = await chooserPromise;
-    if (chooser) {
-      await chooser.setFiles([file]);
-    } else {
-      const input = await this.waitForFileInput(8000);
-      if (!input) {
-        await this.closeAssetLibrary();
-        log.warn('No file input appeared after choosing "Upload media". Calibrate "fileInput".');
-        return false;
-      }
-      await input.setInputFiles([file]);
-    }
-
-    const settled = await this.waitForUploadToSettle({ expected: 1 });
-    await this.closeAssetLibrary();
-    if (!settled) {
-      log.warn(`The picker did not confirm the upload of ${path.basename(file)}.`);
-    }
-    return settled;
-  }
-
-  /**
    * Reuse path: searching for an asset and clicking it attaches it to the prompt
    * and closes the picker in one action - no "Add to prompt" step.
    *

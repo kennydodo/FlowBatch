@@ -5,6 +5,7 @@ import { launchSession, closeSession } from '../src/browser/session.js';
 import { FlowDriver } from '../src/flow/driver.js';
 import { loadJob } from '../src/jobs/load.js';
 import { log } from '../src/lib/log.js';
+import { sleep } from '../src/lib/time.js';
 
 /**
  * Prepare a Flow project for a job, without generating anything.
@@ -121,19 +122,49 @@ export async function prepareCommand({ flags, context, positionals }) {
     if (refs.length === 0) {
       log.info('This job declares no references.');
     } else {
+      let attemptedUpload = false;
       for (const ref of refs) {
         let status = 'missing';
         if (await driver.galleryHasAsset(ref.name)) {
           status = 'reused';
         } else if (ref.path && fs.existsSync(ref.path)) {
-          status = (await driver.uploadReferenceToGallery(ref.path)) ? 'uploaded' : 'missing';
+          // Upload through the same path the generation stage uses. The result is
+          // provisional: Flow shows a fresh upload in the picker long before it is
+          // committed to the project, and a large file can look present and then be
+          // gone by the time the session ends. The reload below settles it.
+          await driver.attachUploadedFiles([ref.path]);
+          status = 'uploaded';
+          attemptedUpload = true;
         }
         report.refs.push({ name: ref.name, kind: 'image', status, path: ref.path ?? null });
-        log.info(`Reference ${ref.name}: ${status}`);
       }
+
+      if (attemptedUpload) {
+        // Verify durability in a fresh page load, so the report never claims a ref
+        // the generation stage cannot find - which is what made `generate` report
+        // "not in the project's assets" for refs prepare had called uploaded.
+        await driver.detachAllReferences().catch(() => {});
+        await sleep(2500);
+        await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+        await driver.waitForPromptBox().catch(() => {});
+        for (const entry of report.refs) {
+          if (entry.status !== 'uploaded') continue;
+          if (!(await driver.galleryHasAsset(entry.name))) {
+            entry.status = 'missing';
+            log.warn(
+              `Reference ${entry.name} did not survive in the project; reporting it missing so the ` +
+                'generation stage uploads it instead.',
+            );
+          }
+        }
+        // Reloading can leave the composer in any state; this run generates nothing.
+        await driver.detachAllReferences().catch(() => {});
+      } else {
+        await driver.detachAllReferences().catch(() => {});
+      }
+
+      for (const entry of report.refs) log.info(`Reference ${entry.name}: ${entry.status}`);
       if (reportPath) writeReport(reportPath, report);
-      // Uploading can leave chips on the prompt box; this run generates nothing.
-      await driver.detachAllReferences().catch(() => {});
     }
 
     return 0;
