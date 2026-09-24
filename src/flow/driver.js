@@ -1274,22 +1274,11 @@ export class FlowDriver {
     const isExcluded = (entry) => excluded.some((pattern) => pattern.test(entry.text));
     const isReferenceTile = (entry) => entry.uploaded || isExcluded(entry);
 
-    // A reference tile can also render with an empty label, which no name check
-    // can catch. Compare against the size a reference RENDERS at, not the size of
-    // its source file: Flow serves a scaled rendition, so a 5504x3072 background
-    // shows as a 3200x1786 tile, and a file-dimension check could never match.
-    // Recorded from every snapshot so a reference that mounts late is still seen.
-    const referenceRenditions = new Set();
-    const noteReferenceRenditions = (entries) => {
-      for (const entry of entries) {
-        if (isReferenceTile(entry) && entry.width > 0 && entry.height > 0) {
-          referenceRenditions.add(`${entry.width}x${entry.height}`);
-        }
-      }
-    };
-    noteReferenceRenditions(before.entries);
-    const echoesReference = (entry) =>
-      entry.width > 0 && entry.height > 0 && referenceRenditions.has(`${entry.width}x${entry.height}`);
+    // A reference is kept out of the candidates by its label (an upload is named
+    // after its file, a generated still is not) and by byte ownership. There is
+    // deliberately no size test: every reference in a refs run renders at the same
+    // 1376x768 as a result, so "this tile is the size of a reference" rejected
+    // every real result and each item burned the full 300s timeout.
 
     // Byte ownership, the guarantee Renderly relies on: everything already on the
     // page when this generation starts is hashed, so an upload - or a stale tile
@@ -1310,11 +1299,10 @@ export class FlowDriver {
     for (;;) {
       const snapshot = await this.snapshotAssets();
       if (snapshot.entries.length > 0) latest = snapshot;
-      noteReferenceRenditions(latest.entries);
 
       // Tiles that changed since the snapshot and are not references.
       const changed = latest.entries.filter(
-        (entry) => !beforeKeys.has(entry.key) && !isReferenceTile(entry) && !echoesReference(entry),
+        (entry) => !beforeKeys.has(entry.key) && !isReferenceTile(entry),
       );
       // A result is served from the finished-asset host, never a grid placeholder.
       const fresh = changed.filter((entry) => isFinalResultUrl(entry.src));
