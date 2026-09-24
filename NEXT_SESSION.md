@@ -133,9 +133,16 @@ Project: `https://flow.google.com/project/772a62aa-c204-4473-a27b-5e106a7f0b06`
    generations that day). Add per-poll timing to `waitForNewAssets` and re-run one item.
 2. **Run the remaining 55 items.** `npm run ui` / `FlowImagesGen.bat` (paste the shotlist path
    into the Job JSON field — the dropdown only lists `config/`). Chunks of 15.
-3. **Decide the upscale tier.** 7 masters have no `_1k`: `S01_03_SCN_PL`, `S08_02_CMP_PL`,
-   `S08_03_HYB_PR`, `S08_04_HOST_ZI`, `S08_05_HYB_ZO`, `S08_06_CU_ZI`, `S09_01_SCN_PL`. If 1K is
-   wanted: `upscale --set-tier 1k`, then `upscale` over those masters.
+3. **Decide the upscale tier.** Tiers are now `off|1k|2k|4k` delivering **1920x1080, 2560x1440 and
+   3840x2160** (2K moved off DCI 2048x1080 and 3K is gone — commit `d1c1922`). Current state:
+   26 masters have `_1k.png`; 7 have no upscale at all (`S01_03_SCN_PL`, `S08_02_CMP_PL`,
+   `S08_03_HYB_PR`, `S08_04_HOST_ZI`, `S08_05_HYB_ZO`, `S08_06_CU_ZI`, `S09_01_SCN_PL`); and 3 carry
+   a `_2k.png` at the **old 2048x1080** size (`S01_02_CU_ZI`, `S01_03_SCN_PL`, `S02_01_HOST_ZI`)
+   which must be re-upscaled if 2K is the target. Pick one with `upscale --set-tier <t>`, then
+   `upscale` over `output/shotlist`.
+
+   **WhisperRadar side:** its `FLOWIMAGESGEN_TIERS` maps level `3 -> "3k"`, which now fails; it wants
+   `{0:"off",1:"1k",2:"2k",4:"4k"}`. Its `render_resolution` labels already match the new sizes.
 4. **Upscaler tuning.** It already ports Renderly's engine (device probe + cache, MAD content
    check, RGB flattening for alpha, GPU → auto → CPU Lanczos). Differences worth testing:
    probe with the configured model/scale instead of a fixed `realesr-animevideov3` x2; skip the
