@@ -302,9 +302,8 @@ master a "3x" is really 4K, which was misleading.
 | Tier | 16:9 target | Other ratios (long side) |
 | --- | --- | --- |
 | `off` | 1376×768, byte-for-byte copy | — |
-| `1k` | 1920 × 1080 | 1920 long side |
-| `2k` (default) | 2048 × 1080 | 2048 long side |
-| `3k` | 3200 × 1800 | 3200 long side |
+| `1k` | 1920 × 1080 (Full HD) | 1920 long side |
+| `2k` (default) | 2560 × 1440 | 2560 long side |
 | `4k` | 3840 × 2160 | 3840 long side |
 
 **Default is 2K**, and the choice is remembered — the web UI writes it as you change it, and
@@ -320,9 +319,9 @@ Flow's masters are only *close* to standard ratios — its "9:16" is 768×1376 (
 - **`fit: "aspect"`** keeps the master's own ratio and matches the tier's long side, giving
   1072×1920 for the same shot. Nothing is resampled non-uniformly, but the sizes are non-standard.
 
-The one caveat is 2K: 2048×1080 is DCI 2K (1.896:1), not 16:9, so a 16:9 source is stretched by
-about 5.8% to fill it. `fit: "aspect"` gives 2048×1152 instead. The other three tiers are exactly
-16:9 and involve no stretching.
+Every tier is exactly 16:9, so a 16:9 source is never stretched, and the sizes match the numbers
+WhisperRadar shows for its render resolutions (1920×1080 / 2560×1440 / 3840×2160) — a tier means the
+same thing on both sides of that integration.
 
 ### Supersampling
 
@@ -387,7 +386,7 @@ The page drives the same CLI as a child process — it is a front end, not a sec
 | --- | --- |
 | **Job JSON** | Dropdown of every job in `config/`, plus **Choose…** for any JSON file elsewhere. |
 | **Save images to** | Native folder picker. Empty uses the job's own `outputsDir`. Passed as `--output`. |
-| **Upscale tier** | Off / 1K / 2K / 3K / 4K, default 2K. Saved immediately and remembered between runs. |
+| **Upscale tier** | Off / 1K / 2K / 4K, default 2K. Saved immediately and remembered between runs. |
 | **Dry run** | Prints the plan and spends nothing. Worth ticking first. |
 | **Start Batch** | Spawns `generate`. Refused with a clear message if a batch is already running. |
 | **End Process** | Kills the whole process tree, so Playwright's Chrome does not survive the stop. |

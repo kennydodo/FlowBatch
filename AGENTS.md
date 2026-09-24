@@ -198,15 +198,15 @@ Rules that matter:
 5. Upscaling must never fail a batch item — the 720p master is already saved, so warn and continue.
 6. The setting persists to `config/upscale.local.json` (gitignored), never to the tracked
    `config/upscale.json`. Comment keys starting with `_` must be stripped before API responses.
-7. **Tiers, not multipliers.** The setting is `tier: off|1k|2k|3k|4k` and names the delivered
-   resolution. From a 720p master a "3x" was really 4K, which is why the multiplier naming was
-   dropped. `normalizeTier` still accepts legacy numeric values.
+7. **Tiers, not multipliers.** The setting is `tier: off|1k|2k|4k` and names the delivered
+   resolution — 1920x1080, 2560x1440, 3840x2160, the same numbers WhisperRadar shows for its render
+   resolutions. From a 720p master a "3x" was really 4K, which is why the multiplier naming was
+   dropped. `normalizeTier` still accepts the legacy numeric values 1, 2 and 4.
 8. **Supersample by default.** Run the engine one native scale above what the target needs, then
    Lanczos-downscale — Renderly's approach, cleaner than resampling up.
 9. `fit: "exact"` snaps to nominal broadcast ratios (16:9, 9:16, 4:3, 3:4, 1:1) because Flow's
    masters are only close to them (its 9:16 is 768x1376). `fit: "aspect"` preserves the master ratio.
-   2K is DCI 2K (2048x1080, 1.896:1), so `exact` stretches a 16:9 source ~5.8%; the other tiers are
-   exactly 16:9.
+   Every tier is exactly 16:9, so `exact` never stretches a 16:9 source.
 
 ## Hard rules
 

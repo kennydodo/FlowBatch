@@ -21,18 +21,18 @@ import {
  * Upscale tiers, named for the resolution they deliver rather than a multiplier
  * (from a ~720p master, "3x" was really 4K, which was misleading).
  *
- * `exact16x9` is used for 16:9 sources so the output lands on the intended
- * broadcast resolution. Every other aspect keeps its own ratio and matches the
- * tier's long side instead, so nothing is ever distorted.
+ * Every tier is exactly 16:9, so a 16:9 source lands on the intended broadcast
+ * resolution. Any other aspect keeps its own ratio and matches the tier's long
+ * side instead, so nothing is ever distorted.
  *
- * Note 2K: 2048x1080 is DCI 2K (1.896:1), not 16:9, so a 16:9 source is
- * stretched by ~5.8% to fill it. Set `fit: "aspect"` to get 2048x1152 instead.
+ * The sizes and labels match the ones WhisperRadar shows for its render
+ * resolutions (1920x1080 / 2560x1440 / 3840x2160), so a tier means the same
+ * thing on both sides of that integration.
  */
 export const TIERS = {
-  '1k': { label: '1K', longSide: 1920, exact16x9: [1920, 1080] },
-  '2k': { label: '2K', longSide: 2048, exact16x9: [2048, 1080], aspect16x9: [2048, 1152] },
-  '3k': { label: '3K', longSide: 3200, exact16x9: [3200, 1800] },
-  '4k': { label: '4K', longSide: 3840, exact16x9: [3840, 2160] },
+  '1k': { label: '1920x1080 (Full HD)', longSide: 1920, exact16x9: [1920, 1080] },
+  '2k': { label: '2560x1440 (2K)', longSide: 2560, exact16x9: [2560, 1440] },
+  '4k': { label: '3840x2160 (4K)', longSide: 3840, exact16x9: [3840, 2160] },
 };
 
 export const TIER_NAMES = Object.keys(TIERS);
@@ -87,7 +87,7 @@ export function normalizeTier(value) {
   const text = String(value).trim().toLowerCase();
   if (text === 'off' || text === 'none' || text === '0' || text === 'false') return 'off';
   if (TIER_NAMES.includes(text)) return text;
-  const legacy = { 1: '1k', 2: '2k', 3: '3k', 4: '4k' }[Number(text)];
+  const legacy = { 1: '1k', 2: '2k', 4: '4k' }[Number(text)];
   if (legacy) return legacy;
   throw new Error(`Upscale tier must be one of off, ${TIER_NAMES.join(', ')} (got "${value}").`);
 }
@@ -321,10 +321,8 @@ export function describeUpscaler() {
       id,
       label: value.label,
       sixteenNine: value.exact16x9.join('x'),
-      aspect: (value.aspect16x9 ?? value.exact16x9).join('x'),
+      aspect: `${value.longSide} long side`,
     })),
-    target16x9: spec
-      ? (settings.fit === 'aspect' && spec.aspect16x9 ? spec.aspect16x9 : spec.exact16x9).join('×')
-      : null,
+    target16x9: spec ? spec.exact16x9.join('×') : null,
   };
 }

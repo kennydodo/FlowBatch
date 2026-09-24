@@ -63,7 +63,7 @@ const COMMANDS = {
   upscale: {
     run: upscaleCommand,
     valueFlags: ['tier', 'model', 'out', 'fit', 'set-tier', 'set-scale', 'scale'],
-    summary: 'Upscale PNGs to a 1K/2K/3K/4K tier on the GPU (Real-ESRGAN), falling back to CPU.',
+    summary: 'Upscale PNGs to a 1K/2K/4K tier on the GPU (Real-ESRGAN), falling back to CPU.',
   },
 };
 
@@ -103,9 +103,9 @@ doctor options
   --project-url <url>   Project to check against; prompt-box controls only exist inside a project
 
 upscale options
-  --tier <t>            off | 1k | 2k | 3k | 4k (default: from config)
+  --tier <t>            off | 1k | 2k | 4k (default: from config)
   --model <name>        realesr-animevideov3 | realesrgan-x4plus | realesrgan-x4plus-anime
-  --fit <mode>          exact (stretch to the tier) | aspect (keep 16:9, e.g. 2K -> 2048x1152)
+  --fit <mode>          exact (snap to the tier's size) | aspect (keep the source's own ratio)
   --out <dir>           Write results here instead of beside each input
   --set-tier <t>        Remember this tier as the default and exit
   --save                Also remember --tier / --model / --fit as the default

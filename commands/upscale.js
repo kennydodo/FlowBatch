@@ -36,7 +36,7 @@ function printInfo() {
   log.heading('Upscaler');
   log.raw(`  engine      : ${info.engineAvailable ? 'realesrgan-ncnn-vulkan' : 'NOT INSTALLED'}`);
   log.raw(`  device      : ${info.deviceName ?? 'auto-detect on first use'}`);
-  log.raw(`  tier        : ${TIERS[info.tier]?.label ?? info.tier} (default)`);
+  log.raw(`  tier        : ${info.tier}${TIERS[info.tier] ? ` - ${TIERS[info.tier].label}` : ''} (default)`);
   log.raw(`  model       : ${info.model}`);
   log.raw(`  supersample : ${info.supersample ? 'yes' : 'no'}`);
   log.raw(`  fit         : ${info.fit}`);
@@ -44,10 +44,10 @@ function printInfo() {
   log.raw('');
   log.raw('  tier  target for 16:9   other ratios (long side)');
   for (const tier of info.tiers) {
-    log.raw(`  ${tier.label.padEnd(4)}  ${tier.sixteenNine.padEnd(16)}  ${tier.aspect}`);
+    log.raw(`  ${tier.id.padEnd(4)}  ${tier.sixteenNine.padEnd(16)}  ${tier.aspect.padEnd(16)}  ${tier.label}`);
   }
   log.raw('');
-  log.raw('Usage: node src/cli.js upscale <file-or-folder> [more...] [--tier 1k|2k|3k|4k|off]');
+  log.raw('Usage: node src/cli.js upscale <file-or-folder> [more...] [--tier 1k|2k|4k|off]');
   log.raw('       node src/cli.js upscale --set-tier 4k');
 }
 
@@ -56,7 +56,7 @@ export async function upscaleCommand({ flags, positionals }) {
   const requested = flags['set-tier'] ?? flags['set-scale'];
   if (requested !== undefined) {
     const saved = saveUpscaleSettings({ tier: normalizeTier(requested === true ? '2k' : requested) });
-    log.ok(`Upscale tier saved as ${TIERS[saved.tier]?.label ?? saved.tier}. Future runs will use it.`);
+    log.ok(`Upscale tier saved as ${saved.tier}${TIERS[saved.tier] ? ` (${TIERS[saved.tier].label})` : ''}. Future runs will use it.`);
     return 0;
   }
 
@@ -82,7 +82,7 @@ export async function upscaleCommand({ flags, positionals }) {
     log.info(`Saved ${tier} / ${model} / fit=${fit} as the default.`);
   }
 
-  log.heading(`Upscaling ${inputs.length} image(s) to ${TIERS[tier]?.label ?? tier}`);
+  log.heading(`Upscaling ${inputs.length} image(s) to ${tier}${TIERS[tier] ? ` (${TIERS[tier].label})` : ''}`);
   let failed = 0;
 
   for (const input of inputs) {
