@@ -66,6 +66,15 @@ export async function generateCommand({ flags, context, positionals }) {
     state.save();
   }
 
+  const missing = state.clearMissingFiles();
+  if (missing.length > 0) {
+    log.warn(
+      `${missing.length} item(s) were marked done but their files are gone; they will run again: ` +
+        missing.join(', '),
+    );
+    state.save();
+  }
+
   if (flags['reset-state'] === true) {
     state.reset(job.items.map((item) => item.id));
     state.save();

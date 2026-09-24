@@ -78,6 +78,31 @@ export class RunState {
     return stale;
   }
 
+  /**
+   * An item marked `done` whose recorded output is gone is not done. The adoption
+   * step downstream reads the disk, so leaving it done reports the image as
+   * generated while nothing is there ("could not be generated"), and refreshing a
+   * production's images folder silently loses the work. Reopen it instead.
+   * Returns the ids that were put back to pending.
+   */
+  clearMissingFiles() {
+    const reopened = [];
+    for (const [id, entry] of Object.entries(this.data.items)) {
+      if (entry.status !== STATUS.done) continue;
+      const files = Array.isArray(entry.files) ? entry.files : [];
+      if (files.length > 0 && files.every((file) => fs.existsSync(file))) continue;
+      reopened.push(id);
+      Object.assign(entry, {
+        status: STATUS.pending,
+        attempts: 0,
+        files: [],
+        error: null,
+        updatedAt: nowIso(),
+      });
+    }
+    return reopened;
+  }
+
   get(id) {
     return this.data.items[id];
   }
