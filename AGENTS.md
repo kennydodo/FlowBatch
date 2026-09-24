@@ -8,8 +8,8 @@ Project notes for automated agents working in this repository.
 ## What this is
 
 A Playwright automation project that drives the Google Flow web UI to batch-generate images from
-reference images. Plain Node ESM, no build step, no bundler, no test framework. The only runtime
-dependency is `playwright`.
+reference images. Plain Node ESM, no build step, no bundler. The only runtime dependency is
+`playwright`; tests use the built-in `node:test` runner, so there is no test dependency either.
 
 ## Commands
 
@@ -28,9 +28,12 @@ npm run generate -- --job <file>               # run it
 Use `--limit 1` and do not run repeated batches while developing. If you see
 `Flow refused the generation: ... unusual activity`, stop and tell the user rather than retrying.
 
-Verification after a change (there is no test suite or linter):
+Verification after a change (no linter; the unit suite covers every non-browser module
+(`src/lib`, `jobs/`, `src/runner`, `src/flow`, `src/upscale`, `src/server.js`) plus the example-job
+dry runs and `config/selectors.json`, but not the live Playwright/browser paths — see `test/`):
 
 ```powershell
+npm test
 node -e "for (const f of ['src/lib/args.js','src/lib/config.js','src/lib/context.js','src/lib/errors.js','src/lib/json.js','src/lib/log.js','src/lib/paths.js','src/lib/prompt.js','src/lib/time.js','src/browser/session.js','src/flow/selectors.js','src/flow/driver.js','src/jobs/load.js','src/runner/state.js','src/runner/run.js','commands/login.js','commands/discover.js','commands/doctor.js','commands/generate.js']) await import('./' + f); console.log('ok')" --input-type=module
 node src/cli.js doctor
 node src/cli.js generate --job config/jobs.example.json --dry-run

@@ -14,7 +14,8 @@
     "generate": "node src/cli.js generate",
     "gen": "node src/cli.js generate",
     "ui": "node src/cli.js serve",
-    "repair": "node src/cli.js repair"
+    "repair": "node src/cli.js repair",
+    "test": "node --test"
   },
   "dependencies": {
     "playwright": "^1.63.0"
