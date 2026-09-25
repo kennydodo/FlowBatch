@@ -137,7 +137,24 @@ export class FlowDriver {
       .catch((error) => log.warn(`Navigation warning: ${error.message.split('\n')[0]}`));
     await sleep(3000);
     await this.dismissConsent();
+    if (this.isProjectUnavailable()) {
+      throw new Error(
+        `Flow reports this project as unavailable (${this.page.url()}). It may have been deleted, or it may ` +
+          'belong to a different Google account. Point the job at a current projectUrl, or omit it so a new ' +
+          'project is created.',
+      );
+    }
     await this.waitForPromptBox({ timeout: this.timeouts.readyMs });
+  }
+
+  /**
+   * A deleted or foreign project URL lands on Flow's 404 page, which has no
+   * composer. The URL says so, so it is detected before waitForPromptBox turns a
+   * project problem into a misleading "calibrate the selector" error.
+   */
+  isProjectUnavailable() {
+    const url = String(this.page.url() ?? '');
+    return /\/404(\/|$|\?)/i.test(url) || /[?&]reason=project\b/i.test(url);
   }
 
   /** The project's own title, as shown in its header (Flow names new ones by date). */

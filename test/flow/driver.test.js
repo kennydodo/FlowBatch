@@ -331,3 +331,21 @@ test('dismissOverlays escapes until the overlay is gone', async () => {
   };
   assert.equal(await makeDriver(page).dismissOverlays(), true);
 });
+
+test('isProjectUnavailable detects a deleted-project 404', () => {
+  const gone = makePage({ url: 'https://flow.google.com/404?reason=project' });
+  assert.equal(makeDriver(gone).isProjectUnavailable(), true);
+
+  const fine = makePage({ url: 'https://flow.google.com/project/abc' });
+  assert.equal(makeDriver(fine).isProjectUnavailable(), false);
+});
+
+test('openProject reports an unavailable project instead of a selector error', async () => {
+  const page = makePage();
+  page.set('consentDismiss', [{}]);
+  await assert.rejects(
+    makeDriver(page).openProject('https://flow.google.com/404?reason=project'),
+    /unavailable/,
+  );
+});
+

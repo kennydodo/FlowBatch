@@ -41,7 +41,7 @@ function projectIdFrom(url) {
 }
 
 /** The unique `{ name, path }` references the job declares, in first-seen order. */
-function uniqueRefs(job) {
+export function uniqueRefs(job) {
   const seen = new Map();
   for (const item of job.items ?? []) {
     for (const ref of item.refs ?? []) {
@@ -50,6 +50,38 @@ function uniqueRefs(job) {
     }
   }
   return [...seen.values()];
+}
+
+/**
+ * Resolve each reference against the project, best-effort.
+ *
+ * One reference that cannot be attached must not abort the whole command: the
+ * project URL has already been reported before this runs, and the generation
+ * stage attaches references itself. A Playwright click can time out on a fresh
+ * project while the composer is still settling (`element is not enabled`), so the
+ * failure is logged and the reference is reported `missing` - which tells the
+ * caller to upload it at generation time instead.
+ */
+export async function resolveReferenceStatuses(driver, refs, { fileExists = fs.existsSync } = {}) {
+  const results = [];
+  for (const ref of refs) {
+    let status = 'missing';
+    try {
+      if (await driver.galleryHasAsset(ref.name)) {
+        status = 'reused';
+      } else if (ref.path && fileExists(ref.path)) {
+        await driver.attachUploadedFiles([ref.path]);
+        status = 'uploaded';
+      }
+    } catch (error) {
+      log.warn(
+        `Could not prepare reference "${ref.name}": ${String(error?.message ?? error).split('\n')[0]}. ` +
+          'Reporting it missing; the generation stage will try again.',
+      );
+    }
+    results.push({ name: ref.name, kind: 'image', status, path: ref.path ?? null });
+  }
+  return results;
 }
 
 export async function prepareCommand({ flags, context, positionals }) {
@@ -122,22 +154,11 @@ export async function prepareCommand({ flags, context, positionals }) {
     if (refs.length === 0) {
       log.info('This job declares no references.');
     } else {
-      let attemptedUpload = false;
-      for (const ref of refs) {
-        let status = 'missing';
-        if (await driver.galleryHasAsset(ref.name)) {
-          status = 'reused';
-        } else if (ref.path && fs.existsSync(ref.path)) {
-          // Upload through the same path the generation stage uses. The result is
-          // provisional: Flow shows a fresh upload in the picker long before it is
-          // committed to the project, and a large file can look present and then be
-          // gone by the time the session ends. The reload below settles it.
-          await driver.attachUploadedFiles([ref.path]);
-          status = 'uploaded';
-          attemptedUpload = true;
-        }
-        report.refs.push({ name: ref.name, kind: 'image', status, path: ref.path ?? null });
-      }
+      // Upload through the same paths the generation stage uses. A fresh upload is
+      // provisional: Flow shows it in the picker long before it is committed, and a
+      // large file can look present and then be gone by the time the session ends.
+      report.refs = await resolveReferenceStatuses(driver, refs);
+      const attemptedUpload = report.refs.some((entry) => entry.status === 'uploaded');
 
       if (attemptedUpload) {
         // Verify durability in a fresh page load, so the report never claims a ref
