@@ -69,7 +69,7 @@ const COMMANDS = {
 
 const GLOBAL_VALUE_FLAGS = ['log-level'];
 
-const HELP = `FlowImagesGen — Playwright batch image generator for Google Flow
+const HELP = `FlowBatch — Playwright batch image generator for Google Flow
 
 Usage
   node src/cli.js <command> [options]

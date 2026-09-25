@@ -1,4 +1,4 @@
-# FlowImagesGen
+# FlowBatch
 
 Batch image generation for **Google Flow** (`flow.google.com`) driven by reference images, using
 Playwright to automate the real Flow web UI in a persistent Chrome profile.
@@ -77,7 +77,7 @@ Two details that are easy to get wrong:
 ## Install
 
 ```powershell
-cd D:\Repos\FlowImagesGen
+cd D:\Repos\FlowBatch
 npm install
 ```
 
@@ -85,7 +85,7 @@ Only one dependency is used: `playwright`.
 
 ## Quick start
 
-**Double-click `FlowImagesGen.bat`** to start the tool. It checks Node is present and new enough,
+**Double-click `FlowBatch.bat`** to start the tool. It checks Node is present and new enough,
 installs dependencies on first run, starts the UI and opens your browser. If the UI is already
 running it just opens it. Leave the window open while you work; close it to stop.
 
@@ -378,7 +378,7 @@ npm run ui                 # then open http://127.0.0.1:8787
 npm run ui -- --open       # opens the browser once the server is listening
 ```
 
-`FlowImagesGen.bat` in the project root does the same thing with the browser step included.
+`FlowBatch.bat` in the project root does the same thing with the browser step included.
 
 The page drives the same CLI as a child process — it is a front end, not a second implementation.
 

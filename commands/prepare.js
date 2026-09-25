@@ -10,7 +10,7 @@ import { sleep } from '../src/lib/time.js';
 /**
  * Prepare a Flow project for a job, without generating anything.
  *
- * This is the FlowImagesGen half of a frozen contract with WhisperRadar:
+ * This is the FlowBatch half of a frozen contract with WhisperRadar:
  *   1. the report file (--report) is the interface, written ATOMICALLY as soon
  *      as the project exists - not at exit - so a later crash still leaves the
  *      project URL behind;

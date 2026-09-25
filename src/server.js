@@ -526,7 +526,7 @@ export function startServer({ port = 8787, host = '127.0.0.1', open = false } = 
 
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
-    log.ok(`FlowImagesGen UI running at ${url}`);
+    log.ok(`FlowBatch UI running at ${url}`);
     log.info('Leave this process running. Press Ctrl+C to stop.');
     if (open) openBrowser(url);
   });

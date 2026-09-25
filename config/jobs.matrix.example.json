@@ -1,6 +1,6 @@
 {
   "name": "example-matrix",
-  "project": "FlowImagesGen",
+  "project": "FlowBatch",
   "outputsDir": "output/example-matrix",
 
   "defaults": {

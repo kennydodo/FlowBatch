@@ -1,5 +1,5 @@
 {
-  "name": "flow-images-gen",
+  "name": "flowbatch",
   "version": "0.1.0",
   "private": true,
   "description": "Playwright batch image generator for Google Flow, driven by reference images.",

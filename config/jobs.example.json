@@ -1,6 +1,6 @@
 {
   "name": "example-explicit",
-  "project": "FlowImagesGen",
+  "project": "FlowBatch",
   "outputsDir": "output/example-explicit",
 
   "defaults": {

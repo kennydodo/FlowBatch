@@ -1,10 +1,10 @@
 @echo off
 setlocal
-title FlowImagesGen
+title FlowBatch
 cd /d "%~dp0"
 
 echo ==========================================================
-echo   FlowImagesGen - batch image generation for Google Flow
+echo   FlowBatch - batch image generation for Google Flow
 echo ==========================================================
 echo.
 
