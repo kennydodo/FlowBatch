@@ -310,3 +310,38 @@ failed item currently stops the run, which hid the rest of wr-7 and wr-9.
   (the CLI cannot delete projects); remove it in Flow if reachable.
 - A temporary screenshot helper `shot-tmp.mjs` was created in the repo root and deleted; nothing
   left behind.
+
+## 2026-09-25 — 10-12 image runs: what held and what did not
+
+Two productions went through this CLI end to end today (both flowimagesgen):
+pid 13 (The Nature Made Us, 12 images, NO refs) → **12/12**; pid 14 (Kenny Invest,
+11 images, 4 SUPPLIED refs) → **11/11** with 2 refs attached per image. So the
+2026-09-24 fixes all held: no `assetTile` false rejection (no "result matches a
+ref's size"), the durable-ref verification no longer produces the old
+prepare-vs-attach disagreement, and `state` resume worked.
+
+Two things still bit, both in `prepare`:
+
+1. **A dead/foreign stored project makes prepare fail with a misleading error.**
+   With the channel's old project (`89e82620`) the run reported
+   `Could not locate the Flow UI element "promptBox" … The Flow UI may have
+   changed. Run npm run discover`, which reads like a selector regression - the
+   project simply does not open (deleted / another Google account). Flow's 404
+   page has no composer. Consider detecting that (`…/404?reason=project`, or the
+   page title) and either reporting it as "project gone" or falling back to
+   `ensureProject` and creating a new one, as WhisperRadar now does on its side.
+2. **prepare's reference step fails on a fresh project: `element is not enabled`.**
+   After creating a new project it printed `FLOW_PROJECT_URL=…/784a8bc0` and then
+   exited 1:
+   `19 … waiting for element to be visible, enabled and stable - element is not
+   enabled - retrying click action - waiting 500ms`.
+   Generation then attached the refs itself and produced 11/11, so `generate`'s
+   ref path is fine while `prepare`'s is fragile. Because the report is written
+   BEFORE the ref work, the project URL is still valid - WhisperRadar was changed
+   to keep that report instead of discarding it, but prepare should not fail the
+   whole command on a ref-attach click timeout.
+
+   Likely related to the registry bloat already noted above: the job declares all
+   27 seeded refs, so prepare may be walking far more references than the 4 the
+   images use. Trimming the registry to the used names is probably the real fix.
+
