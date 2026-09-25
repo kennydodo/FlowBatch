@@ -345,3 +345,13 @@ Two things still bit, both in `prepare`:
    27 seeded refs, so prepare may be walking far more references than the 4 the
    images use. Trimming the registry to the used names is probably the real fix.
 
+**Update 2026-09-25 — both fixed in `47be8dc`.** Re-tested on pid 14 with a dead
+stored project: prepare now reports it by name (`Flow reports this project as
+unavailable …/404?reason=project. It may have been deleted, or it may belong to a
+different Google account.`) instead of the misleading promptBox/selector error,
+and a ref-step failure no longer costs the project - the report keeps a usable
+`projectUrl`. A direct `prepare` on the created project then opened it and logged
+`Reference MAYA: reused`, `BG_LIVING_ROOM_01/BG_HOME_OFFICE_01/BG_KITCHEN_01:
+reused`, exit 0. (The ref step can still flake once - `element is not enabled` -
+but it is no longer fatal.) The registry-bloat trim is still open.
+
