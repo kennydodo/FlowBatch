@@ -149,14 +149,13 @@ Project: `https://flow.google.com/project/772a62aa-c204-4473-a27b-5e106a7f0b06`
    2-item regression run. **Not yet observed triggering:** the salvage path and the download-retry
    path — watch for them in the next real batch. The 16 orphan images in that project are still
    there.
-4. **Rename the project to FlowBatch (requested 2026-09-25, NOT started).** Do it as its own change,
-   with the user, not opportunistically. It touches more than the folder name: the repo directory
-   (`D:\Repos\FlowImagesGen`), `package.json` `name`, `FlowImagesGen.bat` and its internal
-   references, the AGENTS/README prose, the `FLOW_PROJECT_URL` marker/`prepare --report` contract
-   note that WhisperRadar depends on, and any WhisperRadar config, scheduled task or shortcut that
-   points at the current folder or CLI path. Decide first what the "product" name should be versus
-   what stays (the `flow-imagesgen-*` state/attr names, `data-flow-imagesgen-stale`, git remote),
-   then rename in one pass.
+4. **DONE (2026-09-25, commit `518bf4b`): rename to FlowBatch.** The product is now FlowBatch:
+    folder `D:\Repos\FlowBatch`, `package.json` name `flowbatch`, `FlowBatch.bat`, README, UI title,
+    CLI help and log line, example-job `project` names. Kept by design: the `data-flow-imagesgen-stale`
+    DOM attr, state-file names, the git remote (GitHub repo renamed by the user), and the WhisperRadar
+    contract (`FLOW_PROJECT_URL` marker / `prepare --report` schema) — the contract marker and schema
+    are unchanged. WhisperRadar config/shortcuts that point at the old folder or CLI path must be
+    updated on that side.
 
 ## Known gotchas (do not re-derive)
 
