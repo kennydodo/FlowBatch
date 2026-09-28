@@ -184,12 +184,13 @@ export class FlowDriver {
    * challenge page.
    */
   async looksSignedIn() {
-    const state = await this.signInState({ timeoutMs: 4000 });
-    if (state !== 'unknown') return state;
-
     const url = this.page.url();
     if (/accounts\.google\.com/.test(url)) return 'challenge';
     if (!/^https?:\/\/([a-z0-9-]+\.)*flow\.google\.com\//i.test(url)) return 'unknown';
+
+    const state = await this.signInState({ timeoutMs: 4000 });
+    if (state !== 'unknown') return state;
+
     if (/\/about(\/|$|\?)/i.test(url)) return 'out';
     if (await this.exists('promptBox', { timeout: 0 })) return 'in';
     return 'unknown';

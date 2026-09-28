@@ -19,8 +19,8 @@
   ],
 
   "signedIn": [
-    "[aria-label*='Google Account' i]",
-    "a[href*='myaccount.google.com']"
+    "a[href*='myaccount.google.com']",
+    "[aria-label*='Google Account' i]:not([aria-label*='Help Center' i])"
   ],
 
   "signedOut": [
