@@ -37,14 +37,33 @@ export function notInstalledMessage() {
   );
 }
 
+/**
+ * ICD files shipped next to the engine whose driver actually exists on this
+ * machine. nv-vk64.json / igvk64.json carry absolute DriverStore paths, so a
+ * checkout copied from another machine names drivers that are not installed;
+ * forcing those into the loader makes vkCreateInstance fail and every GPU
+ * probe look like a dead card.
+ */
+export function usableIcdFiles(dir = TOOLS_DIR) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((name) => name.endsWith('.json') && name !== 'device_cache.json')
+    .filter((name) => {
+      try {
+        const icd = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+        const library = icd?.ICD?.library_path;
+        return typeof library === 'string' && fs.existsSync(library);
+      } catch {
+        return false;
+      }
+    })
+    .map((name) => path.join(dir, name));
+}
+
 /** Point the Vulkan loader at the ICD files shipped next to the engine. */
 function icdEnvironment() {
-  const files = fs.existsSync(TOOLS_DIR)
-    ? fs
-        .readdirSync(TOOLS_DIR)
-        .filter((name) => name.endsWith('.json') && name !== 'device_cache.json')
-        .map((name) => path.join(TOOLS_DIR, name))
-    : [];
+  const files = usableIcdFiles();
   if (files.length === 0) return {};
   const value = files.join(';');
   return { VK_DRIVER_FILES: value, VK_ICD_FILENAMES: value };
