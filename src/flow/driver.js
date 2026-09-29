@@ -293,9 +293,16 @@ export class FlowDriver {
 
   async openSettingsOverlay() {
     // Idempotent: clicking the trigger while the overlay is already open would
-    // close it again, leaving nothing to configure.
-    if (await this.selectors.exists(this.page, 'settingsOverlay', { timeout: 0 })) {
+    // close it again, leaving nothing to configure. Trust the overlay's CONTROLS
+    // (the mode toggle), not just its container - a container left mid-close by
+    // the previous item's in-place clear still matches "settingsOverlay" while
+    // its toggles are already gone, which used to make the next apply fail with
+    // "Could not locate the Flow UI element modeImageOption".
+    if (await this.selectors.exists(this.page, 'modeImageOption', { timeout: 0 })) {
       return null;
+    }
+    if (await this.selectors.exists(this.page, 'settingsOverlay', { timeout: 0 })) {
+      await this.closeSettingsOverlay();
     }
     const button = await this.find('settingsTriggerButton', { timeout: 8000 });
     await button.locator.click();
@@ -565,7 +572,18 @@ export class FlowDriver {
     }
 
     await this.openSettingsOverlay();
-    await this.ensureMode(mode ?? 'image');
+    try {
+      await this.ensureMode(mode ?? 'image');
+    } catch (error) {
+      if (!/modeImageOption/.test(String(error?.message ?? ''))) throw error;
+      // The trigger click is sometimes swallowed while the Agent toggle is
+      // still transitioning (right after an in-place composer clear), leaving
+      // the overlay without its controls. Close and reopen once the UI has
+      // settled rather than failing the whole item.
+      await this.closeSettingsOverlay();
+      await this.openSettingsOverlay();
+      await this.ensureMode(mode ?? 'image');
+    }
     await this.selectModel(model);
     await this.setAspectRatio(aspectRatio);
     await this.setOutputCount(outputs);

@@ -327,6 +327,39 @@ test('an item that cannot be cleared in place falls back to a reload', async (t)
   assert.equal(callsNamed(driver, 'applyGenerationSettings').length, 2);
 });
 
+test('a changed per-item aspect ratio is re-applied in the clear path', async (t) => {
+  const driver = makeDriver({
+    waitForNewAssets: async () => ({ added: [{ key: 'k', index: 0 }], selector: 'grid' }),
+    fetchAssetBytes: async () => JPG,
+  });
+  const settings = makeSettings({ generation: { reapplySettingsAfterReset: false } });
+  const { result } = await runFixture(t, {
+    items: [item('A', { aspectRatio: '16:9' }), item('B', { aspectRatio: '1:1' })],
+    driver,
+    settings,
+  });
+
+  assert.equal(result.ok, 2);
+  const applied = callsNamed(driver, 'applyGenerationSettings');
+  assert.deepEqual(applied.map((call) => call.args[0].aspectRatio), ['16:9', '1:1']);
+});
+
+test('an unchanged aspect ratio is not re-applied when reapply is off', async (t) => {
+  const driver = makeDriver({
+    waitForNewAssets: async () => ({ added: [{ key: 'k', index: 0 }], selector: 'grid' }),
+    fetchAssetBytes: async () => JPG,
+  });
+  const settings = makeSettings({ generation: { reapplySettingsAfterReset: false } });
+  const { result } = await runFixture(t, {
+    items: [item('A', { aspectRatio: '16:9' }), item('B', { aspectRatio: '16:9' })],
+    driver,
+    settings,
+  });
+
+  assert.equal(result.ok, 2);
+  assert.equal(callsNamed(driver, 'applyGenerationSettings').length, 1);
+});
+
 test('a signed-out page stops before any item runs', async (t) => {
   const driver = makeDriver({ looksSignedIn: async () => 'out' });
   await assert.rejects(

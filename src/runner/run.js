@@ -21,6 +21,22 @@ function resolveGenSettings(item, settings) {
   };
 }
 
+/**
+ * Identity of the prompt-box settings that must be in effect to generate an
+ * item. A job can vary mode/model/aspectRatio/outputs per shot (e.g. PU/PD ask
+ * for 1:1 while the rest stay 16:9), so the runner re-applies the settings
+ * whenever this key changes between items, not just once per run.
+ */
+function settingsKeyOf(genSettings) {
+  return [
+    genSettings.mode,
+    genSettings.model ?? '',
+    genSettings.aspectRatio ?? '',
+    genSettings.outputs,
+    genSettings.agent === true ? 'agent' : 'standard',
+  ].join('|');
+}
+
 export function selectItems(items, { only, limit, resume, state }) {
   let selected = items;
   if (only && only.length > 0) {
@@ -131,14 +147,19 @@ export async function runJob({ job, driver, state, settings, options }) {
   let failed = 0;
   let aborted = false;
   const results = [];
-  // The prompt box is configured once per run. A cooldown retry of the first
-  // item must not configure it again, which is why this is not a `firstItem`
-  // flag flipped at the end of the loop body.
+  // The prompt-box settings are configured as needed and re-checked per item:
+  // a job can carry a different aspect ratio (or model/outputs) per shot, so
+  // "configured once" is not enough - the settings in effect must match the
+  // item about to generate. A cooldown retry of the same item must not
+  // reconfigure them, which is why this tracks the applied key rather than a
+  // `firstItem` flag flipped at the end of the loop body.
   let settingsApplied = false;
+  let appliedSettingsKey = null;
 
   for (const item of items) {
     log.heading(`Item ${item.id} (${item.index + 1}/${job.items.length})`);
     const genSettings = resolveGenSettings(item, settings);
+    const settingsKey = settingsKeyOf(genSettings);
     const expected = genSettings.outputs;
     const refMode = item.refMode ?? job.refMode ?? gen.refMode ?? 'upload';
     const retries = Number(item.retries ?? globalRetries);
@@ -157,24 +178,29 @@ export async function runJob({ job, driver, state, settings, options }) {
         if (!settingsApplied) {
           await driver.applyGenerationSettings(genSettings);
           settingsApplied = true;
-        } else if (resetMode === 'reload') {
-          log.debug('Reloading the project to reset the prompt box.');
-          await driver.reload();
-          if (reapply) await driver.applyGenerationSettings(genSettings);
+          appliedSettingsKey = settingsKey;
         } else {
-          // Clear the composer in place instead of reloading the whole app.
-          // A reload is the fallback if the composer will not come clean.
-          const cleared = await driver.clearComposerForNextItem();
-          if (!cleared) {
-            log.warn('Composer could not be cleared in place; reloading the project.');
+          if (resetMode === 'reload') {
+            log.debug('Reloading the project to reset the prompt box.');
             await driver.reload();
-            if (reapply) await driver.applyGenerationSettings(genSettings);
+          } else {
+            // Clear the composer in place instead of reloading the whole app.
+            // A reload is the fallback if the composer will not come clean.
+            const cleared = await driver.clearComposerForNextItem();
+            if (!cleared) {
+              log.warn('Composer could not be cleared in place; reloading the project.');
+              await driver.reload();
+            }
           }
-          // The prompt-box settings survive an in-place clear - they are the
-          // project's defaults, not composer state - so they are deliberately
-          // NOT re-applied here. Re-applying means opening the settings overlay
-          // for nothing, and clicking the trigger while it is already open just
-          // closes it again.
+          // The in-place clear leaves the PREVIOUS item's prompt-box settings in
+          // place - it does not restore this item's - so when they differ (e.g.
+          // PU/PD need 1:1 while the last shot was 16:9) they must be applied
+          // again. applyGenerationSettings() no-ops when they already match, so
+          // this stays cheap for runs with one ratio throughout.
+          if (settingsKey !== appliedSettingsKey || reapply) {
+            await driver.applyGenerationSettings(genSettings);
+            appliedSettingsKey = settingsKey;
+          }
         }
 
         if (refMode === 'mention') {
