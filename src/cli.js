@@ -37,6 +37,7 @@ const COMMANDS = {
       'project-url',
       'cooldown',
       'max-cooldowns',
+      'max-consecutive-failures',
       'profile',
       'agent',
       'channel',
@@ -148,6 +149,9 @@ generate options
   --agent <on|off>      Agent mode. ON avoids refusals; OFF gives per-item model/ratio control.
   --cooldown <seconds>  Wait this long after a rate-limit refusal, then retry (default: 180)
   --max-cooldowns <n>   Give up after this many consecutive waits (default: 10)
+  --max-consecutive-failures <n>
+                        Stop the whole batch after this many failures in a row
+                        (default: 3; the Flow session/UI is likely broken then)
   --fail-fast           Stop at the first failed item
   --pause-on-error      Keep the browser open and wait for Enter after a failure
   --no-dump-on-error    Do not write debug/ screenshots + HTML on failure

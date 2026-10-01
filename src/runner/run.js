@@ -134,9 +134,18 @@ export async function runJob({ job, driver, state, settings, options }) {
   const gen = settings.generation ?? {};
   const cooldownMs = Number(options.cooldownSeconds ?? gen.cooldownSeconds ?? 180) * 1000;
   const maxCooldowns = Number(options.maxCooldowns ?? gen.maxCooldowns ?? 10);
+  // Stop the WHOLE batch after this many item failures in a row. Consecutive
+  // failures usually mean the Flow session/UI broke (the composer gone, signed
+  // out) - grinding through the rest just burns the account and leaves the
+  // remaining items "failed" for no reason. Stop and let a later run resume
+  // (state is kept). 0 disables the guard; default 3.
+  const maxConsecutiveFailures = Number(
+    options.maxConsecutiveFailures ?? gen.maxConsecutiveFailures ?? 3,
+  );
   const maxPromptChars = Number(gen.maxPromptChars ?? 2420);
   // Consecutive rate-limit waits; reset whenever an item succeeds.
   let cooldownsUsed = 0;
+  let consecutiveFailures = 0;
   const globalRetries = Number(gen.retries ?? 0);
   const retryDelayMs = Number(gen.retryDelayMs ?? 5000);
   const delayBetweenItemsMs = Number(gen.delayBetweenItemsMs ?? 0);
@@ -326,6 +335,7 @@ export async function runJob({ job, driver, state, settings, options }) {
         succeeded = true;
         ok += 1;
         cooldownsUsed = 0;
+        consecutiveFailures = 0;
         results.push({ id: item.id, status: STATUS.done, files: saved });
       } catch (error) {
         lastError = error;
@@ -406,6 +416,7 @@ export async function runJob({ job, driver, state, settings, options }) {
       state.update(item.id, { status: STATUS.failed, error: String(lastError?.message ?? lastError) });
       state.save();
       failed += 1;
+      consecutiveFailures += 1;
       results.push({ id: item.id, status: STATUS.failed, error: String(lastError?.message ?? lastError) });
 
       if (options.pauseOnError ?? gen.pauseOnError) {
@@ -413,6 +424,14 @@ export async function runJob({ job, driver, state, settings, options }) {
       }
       if (options.failFast) {
         log.error('Stopping early because --fail-fast is set.');
+        break;
+      }
+      if (maxConsecutiveFailures > 0 && consecutiveFailures >= maxConsecutiveFailures) {
+        log.error(
+          `Stopping: ${consecutiveFailures} item(s) failed in a row - the Flow ` +
+            'session or UI is likely broken (composer gone / signed out). ' +
+            'Re-run later; state is kept so it resumes the unrendered items.',
+        );
         break;
       }
     }

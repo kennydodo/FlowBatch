@@ -43,6 +43,10 @@ export async function generateCommand({ flags, context, positionals }) {
     dumpOnError: flags['dump-on-error'] !== false,
     cooldownSeconds: flags.cooldown === undefined ? undefined : intFlag(flags, 'cooldown', 180),
     maxCooldowns: flags['max-cooldowns'] === undefined ? undefined : intFlag(flags, 'max-cooldowns', 10),
+    maxConsecutiveFailures:
+      flags['max-consecutive-failures'] === undefined
+        ? undefined
+        : intFlag(flags, 'max-consecutive-failures', 3),
   };
 
   const state = RunState.open(RunState.pathFor(settings.dirs.stateDir, job.name), {
