@@ -9,6 +9,7 @@ import { generateCommand } from '../commands/generate.js';
 import { serveCommand } from '../commands/serve.js';
 import { repairCommand } from '../commands/repair.js';
 import { prepareCommand } from '../commands/prepare.js';
+import { recoverCommand } from '../commands/recover.js';
 import { upscaleCommand } from '../commands/upscale.js';
 
 const COMMANDS = {
@@ -61,6 +62,11 @@ const COMMANDS = {
     valueFlags: ['job', 'report', 'project-url', 'profile', 'channel', 'slowmo', 'url'],
     summary: 'Open or create a job\u2019s Flow project and get its references into the gallery, without generating.',
   },
+  recover: {
+    run: recoverCommand,
+    valueFlags: ['job', 'report', 'output', 'project-url', 'profile', 'channel', 'slowmo', 'url'],
+    summary: 'Download a stopped batch\u2019s already-generated results from the project gallery, without generating.',
+  },
   upscale: {
     run: upscaleCommand,
     valueFlags: ['tier', 'model', 'out', 'fit', 'set-tier', 'set-scale', 'scale'],
@@ -84,6 +90,7 @@ Commands
   serve      ${COMMANDS.serve.summary}
   repair     ${COMMANDS.repair.summary}
   prepare    ${COMMANDS.prepare.summary}
+  recover    ${COMMANDS.recover.summary}
   upscale    ${COMMANDS.upscale.summary}
 
 login options
@@ -108,6 +115,7 @@ upscale options
   --model <name>        realesr-animevideov3 | realesrgan-x4plus | realesrgan-x4plus-anime
   --fit <mode>          exact (snap to the tier's size) | aspect (keep the source's own ratio)
   --out <dir>           Write results here instead of beside each input
+  --in-place            Replace each PNG under its own name (idempotent: files already at the tier are skipped)
   --set-tier <t>        Remember this tier as the default and exit
   --save                Also remember --tier / --model / --fit as the default
   With no arguments, prints the engine, device, tiers and current settings.
@@ -122,6 +130,16 @@ prepare options
   --report <file>       Write the report here, atomically, as soon as the project exists
   --project-url <url>   Open this project instead of resolving one from the job
   Prints FLOW_PROJECT_URL=<url> on stdout. Never generates anything.
+
+recover options
+  --job <file>          Job JSON whose results are stuck in the gallery (or first argument)
+  --report <file>       Write the recovery report here, atomically, at the end
+  --output <dir>        Look for (and write) results here instead of the job's outputsDir
+  --project-url <url>   The project whose gallery to read (strongly recommended)
+  --dry-run             Show what is missing without opening a browser
+  Adopts only files still missing on disk, matching tiles to items by label,
+  then by the tile's own "Reuse prompt" control, then by submission order when
+  that is unambiguous. Never generates anything.
 
 serve options
   --port <n>            Port to listen on (default: 8787)

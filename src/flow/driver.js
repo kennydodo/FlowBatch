@@ -37,6 +37,25 @@ function isFinalResultUrl(src) {
   }
 }
 
+/**
+ * Recovery only. A freshly rendered tile exposes the flow-content.google CDN
+ * URL, but a RELOADED project gallery serves every tile through a signed
+ * same-origin proxy (https://flow.google.com/asb/...=s1600-rw) - those tiles
+ * are finished results too, they just lost their CDN URL when the page was
+ * reloaded. Generation's "new result" detection must keep insisting on the
+ * CDN URL (a stale tile may never look new); recovery is allowed both.
+ */
+function isRecoverableAssetSrc(src) {
+  if (isFinalResultUrl(src)) return true;
+  if (!/^https?:/i.test(src)) return false;
+  try {
+    const url = new URL(src);
+    return url.hostname === 'flow.google.com' && /^\/asb\//.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function hashBytes(buffer) {
   return createHash('sha1').update(buffer).digest('hex');
 }
@@ -1065,6 +1084,47 @@ export class FlowDriver {
     return (await this.selectors.count(this.page, 'promptReferenceChip')) === 0;
   }
 
+  /**
+   * Read a generated tile's prompt by clicking ITS OWN redo ("Reuse prompt")
+   * control - which repopulates the composer with the tile's stored prompt -
+   * reading the composer text, then clearing the composer again. One tile at a
+   * time; the run never touches "Start generation", so nothing can be
+   * generated accidentally. Returns null when the tile carries no redo control.
+   */
+  async readTilePrompt(tileIndex, { selector }) {
+    const tile = this.page.locator(selector).nth(tileIndex);
+    await tile.scrollIntoViewIfNeeded().catch(() => {});
+    await tile.hover().catch(() => {});
+    await sleep(250);
+
+    let clicked = false;
+    for (const candidate of this.selectors.candidates('tileRedoButton')) {
+      const button = tile.locator(candidate).first();
+      if ((await button.count().catch(() => 0)) > 0) {
+        // The tile hotbar is transparent until hovered, like the chip remove
+        // control, so force the click.
+        await button.click({ force: true, timeout: 4000 }).catch(() => {});
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked) return null;
+    await sleep(1200);
+
+    const box = await this.selectors.find(this.page, 'promptBox', {
+      timeout: 4000,
+      required: false,
+    });
+    const text = box
+      ? await box.locator
+          .evaluate((node) => (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim())
+          .catch(() => null)
+      : null;
+    const cleared = await this.clearComposerForNextItem().catch(() => false);
+    if (!cleared) await this.clearPrompt().catch(() => {});
+    return text;
+  }
+
   async waitForReferences(expected) {
     const deadline = Date.now() + REFERENCE_CONFIRM_MS;
     while (Date.now() < deadline) {
@@ -1144,6 +1204,11 @@ export class FlowDriver {
                 key: src || node.getAttribute('data-testid') || node.getAttribute('id') || '',
                 src,
                 text: (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+                // A reloaded gallery names each tile with a short Flow caption
+                // ("Woman auctioning vintage camera"), not the prompt; innerText is
+                // empty there. The caption cannot identify the item, but it is the
+                // only per-tile name available without clicking the redo control.
+                label: (node.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 200),
                 hasImage: Boolean(src) && /^https?:/i.test(src),
                 canRedo,
                 width: img ? img.naturalWidth : 0,
@@ -1152,7 +1217,7 @@ export class FlowDriver {
             },
             redoSelectors,
           )
-          .catch(() => ({ key: '', text: '' }));
+          .catch(() => ({ key: '', text: '', label: '' }));
         // Uploaded references are labelled with their filename; generated stills
         // are not. Used to keep uploads out of "new result" detection.
         const uploaded = /\.(png|jpe?g|webp|gif|heic?|mp4|m4v|mov|avi|3gp)\b/i.test(info.text);
@@ -1165,6 +1230,7 @@ export class FlowDriver {
           key: info.key || `#${index}`,
           src: info.src || '',
           text: info.text,
+          label: info.label || '',
           uploaded,
           failed,
           canRedo,
@@ -1177,6 +1243,101 @@ export class FlowDriver {
       return { selector, entries };
     }
     return { selector: null, entries: [] };
+  }
+
+  /**
+   * Scroll the gallery grid by one page (or to the top). Playwright's CSS
+   * pierces shadow roots but page.evaluate is plain DOM, so the tile lookup
+   * and the ancestor walk (across shadow hosts) happen in-page. Returns
+   * whether the scroll position actually moved.
+   */
+  async scrollGallery({ toTop = false } = {}) {
+    return this.page
+      .evaluate((top) => {
+        const findTile = (root) => {
+          const direct = root.querySelector(
+            'flow-grid-tile-container, flow-tile-container, flow-image-tile'
+          );
+          if (direct) return direct;
+          for (const el of root.querySelectorAll('*')) {
+            if (!el.shadowRoot) continue;
+            const hit = findTile(el.shadowRoot);
+            if (hit) return hit;
+          }
+          return null;
+        };
+        let node = findTile(document);
+        if (!node) return false;
+        let scroller = null;
+        while (node) {
+          const style = getComputedStyle(node);
+          if (
+            node.scrollHeight > node.clientHeight + 100 &&
+            /auto|scroll/.test(style.overflowY)
+          ) {
+            scroller = node;
+            break;
+          }
+          node =
+            node.assignedSlot ||
+            node.parentElement ||
+            (node.getRootNode() instanceof ShadowRoot ? node.getRootNode().host : null);
+        }
+        if (!scroller) scroller = document.scrollingElement || document.documentElement;
+        if (top) {
+          const was = scroller.scrollTop;
+          scroller.scrollTop = 0;
+          return scroller.scrollTop !== was;
+        }
+        const before = scroller.scrollTop;
+        scroller.scrollTop += Math.max(300, scroller.clientHeight * 0.8);
+        return scroller.scrollTop !== before;
+      }, toTop)
+      .catch(() => false);
+  }
+
+  /**
+   * Union of every tile the virtual grid mounts: snapshot, page down, snapshot
+   * again until the scroll position stops moving. A tile can appear twice
+   * under different keys when its <img> src lazily swaps; result filtering
+   * keeps only finished-host srcs, so the placeholder copy drops out.
+   */
+  async scanAssets({ rounds = 40, settleMs = 700, initialSettle = true } = {}) {
+    const first = initialSettle ? await this.waitForGridToSettle() : await this.snapshotAssets();
+    if (!first.selector) return first;
+    const merged = new Map();
+    let snapshot = first;
+    for (;;) {
+      for (const entry of snapshot.entries) {
+        if (!merged.has(entry.key)) merged.set(entry.key, entry);
+      }
+      if (merged.size === 0) break;
+      const moved = await this.scrollGallery().catch(() => false);
+      if (!moved || rounds <= 0) break;
+      rounds -= 1;
+      await sleep(settleMs);
+      snapshot = await this.snapshotAssets();
+    }
+    await this.scrollGallery({ toTop: true }).catch(() => {});
+    return { selector: first.selector, entries: [...merged.values()] };
+  }
+
+  /**
+   * The gallery's generated results: the redo control is the discriminator
+   * (uploads never carry one), the finished host means the render is done, and
+   * tiles Flow reported as failed are excluded.
+   */
+  async listGeneratedResults(options = {}) {
+    const scanned = await this.scanAssets(options);
+    return scanned.entries.filter(
+      (entry) =>
+        entry.canRedo &&
+        entry.hasImage &&
+        !entry.uploaded &&
+        !entry.failed &&
+        !/\b(failed|unusual activity|not been charged|try again)\b/i.test(entry.label || '') &&
+        isRecoverableAssetSrc(entry.src),
+    );
   }
 
   /**

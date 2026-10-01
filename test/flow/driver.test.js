@@ -17,6 +17,7 @@ const PLACEHOLDER = 'https://flow.google.com/asb/placeholder';
 const SELECTORS = {
   assetTile: ['tile'],
   tileRedoButton: ['redo'],
+  promptBox: ['prompt'],
   generatingIndicator: ['generating'],
   generationRefusal: ['refusal'],
   errorBanner: ['banner'],
@@ -347,5 +348,70 @@ test('openProject reports an unavailable project instead of a selector error', a
     makeDriver(page).openProject('https://flow.google.com/404?reason=project'),
     /unavailable/,
   );
+});
+
+test('readTilePrompt clicks the tile redo control, reads the composer, and clears it', async () => {
+  const page = makePage({ requestHandler: () => null });
+  page.set('tile', [{ src: FINAL, text: 'a result', redo: true, children: { redo: [{}] } }]);
+  page.set('prompt', [{ text: 'the stored prompt for this tile' }]);
+  const driver = makeDriver(page);
+
+  const text = await driver.readTilePrompt(0, { selector: 'tile' });
+  assert.equal(text, 'the stored prompt for this tile');
+  const keys = page.state.calls.filter((call) => call.method === 'press').map((call) => call.key);
+  assert.ok(keys.includes('Control+A'), 'the composer must be cleared after the read');
+});
+
+test('readTilePrompt returns null when the tile carries no redo control', async () => {
+  const page = makePage();
+  page.set('tile', [{ src: FINAL, text: 'an upload' }]);
+  assert.equal(await makeDriver(page).readTilePrompt(0, { selector: 'tile' }), null);
+});
+
+test('listGeneratedResults keeps finished redo tiles and drops uploads, placeholders and failures', async () => {
+  const page = makePage({ pageEvaluate: async () => false });
+  page.set('tile', [
+    { src: FINAL, text: 'a generated still', redo: true },
+    { src: PLACEHOLDER, text: 'Maya.png', redo: false },
+    { src: FINAL_2, text: 'Maya.png', redo: false },
+    { src: FINAL, text: 'Failed. unusual activity', redo: false },
+  ]);
+  const results = await makeDriver(page).listGeneratedResults({ initialSettle: false, settleMs: 0 });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].src, FINAL);
+});
+
+test('listGeneratedResults accepts reloaded gallery tiles served through the asb proxy', async () => {
+  const page = makePage({ pageEvaluate: async () => false });
+  const asb = 'https://flow.google.com/asb/ANqvLOZklFx=s1600-rw';
+  page.set('tile', [
+    { src: asb, redo: true, attrs: { 'aria-label': 'Woman auctioning vintage camera' } },
+    { src: 'https://flow.google.com/asb/ANqvLOother=s1600-rw', redo: true, attrs: { 'aria-label': 'Failed. unusual activity' } },
+    { src: FINAL, redo: true },
+  ]);
+  const results = await makeDriver(page).listGeneratedResults({ initialSettle: false, settleMs: 0 });
+  // The proxy tile is a real result; the one Flow captioned as failed is not.
+  assert.deepEqual(results.map((entry) => entry.src), [asb, FINAL]);
+});
+
+test('snapshotAssets captures the tile caption as label', async () => {
+  const page = makePage();
+  page.set('tile', [{ src: FINAL, redo: true, attrs: { 'aria-label': 'Maya examining camera details' } }]);
+  const snapshot = await makeDriver(page).snapshotAssets();
+  assert.equal(snapshot.entries[0].label, 'Maya examining camera details');
+});
+
+test('scanAssets unions tiles across scrolls until the gallery stops moving', async () => {
+  const page = makePage({ requestHandler: () => null });
+  page.set('tile', [{ src: `${FINAL}-0`, text: 'still 0', redo: true }]);
+  let moved = 0;
+  page.state.pageEvaluate = async (fn, arg) => {
+    if (arg === true) return false;
+    moved += 1;
+    page.set('tile', [{ src: `${FINAL}-${moved}`, text: `still ${moved}`, redo: true }]);
+    return moved < 3;
+  };
+  const scanned = await makeDriver(page).scanAssets({ settleMs: 0, initialSettle: false });
+  assert.ok(scanned.entries.length >= 2, `expected the union of mounted tiles, got ${scanned.entries.length}`);
 });
 

@@ -2,6 +2,47 @@
 
 Handover notes. Delete this file once the list is clear.
 
+## 2026-10-01 — `upscale --in-place` (offline post-download upscale)
+
+`node src/cli.js upscale <file-or-folder> --tier 2k --in-place` now replaces
+each PNG under its own name: it upscales to a temp file and renames over the
+master only on success, and it SKIPS any file already at the tier (IHDR size
+check, no pixel decode), so the pass is idempotent and safe to re-run.
+`--in-place` and `--out` are mutually exclusive; the default (no `--in-place`)
+behaviour is unchanged. WhisperRadar's new "Upscale after download (local)"
+mode uses this for BOTH engines: after the batch downloads masters it runs
+one pass over the images folder, and the images stage has a manual
+"Upscale images (local)" button. Tests: test/upscale/inplace.test.js.
+
+## 2026-10-01 — `recover` command added (WhisperRadar's gallery-adoption contract)
+
+`node src/cli.js recover --job <job.json> --report <path> --output <dir>
+--project-url <url>` adopts a stopped batch's already-generated results from
+the project gallery WITHOUT generating: it unions the virtualized grid
+(`driver.scanAssets`), keeps finished result tiles (canRedo + final host),
+matches them to still-missing items by label prefix (>=20 chars, never
+ambiguously), then by reading each tile's own "Reuse prompt" control
+(`driver.readTilePrompt` - composer cleared again after EVERY tile), then by
+submission order only when counts agree and prompts are distinct, downloads
+via the same CDN-first path, upscales per config, saves under the job's exact
+`file` names, marks the state item done, and writes an atomic report
+{schemaVersion:1, recovered:[{id,file,how}], alreadyPresent, stillMissing}.
+WhisperRadar calls it from the IMAGES stage's manual button
+(`studio.run_flowbatch_recover`).
+
+**Live-calibrated 2026-10-01** against production wr-20 (77 stuck stills). A
+reloaded project gallery does NOT look like a fresh one: every tile is served
+through the signed same-origin proxy `https://flow.google.com/asb/...=s1600-rw`
+(only a just-rendered tile has the `flow-content.google/image/...` CDN URL the
+generation path insists on) and each tile is named with a Flow caption
+("Woman auctioning vintage camera"), not the prompt. The first live run found
+0 results because of the CDN-only filter; `isRecoverableAssetSrc` now accepts
+both URL shapes for recovery only, and snapshot entries carry a `label` field.
+The redo read was verified live: it repopulates the composer with exactly
+`item.prompt` (loadJob folds job.style into it), so `how:"prompt-read"` is the
+reliable matcher for reloaded galleries, not the caption. **That project's
+orphaned stills can now be adopted this way.**
+
 ## FROZEN CONTRACT with WhisperRadar (do not change silently)
 
 WhisperRadar spawns this CLI and needs the Flow project URL back. Agreed
