@@ -46,6 +46,10 @@ export async function launchSession(settings, { headless } = {}) {
     ignoreHTTPSErrors: true,
     args,
   };
+  // Playwright adds --enable-automation by default: it sets navigator.webdriver
+  // and shows the "controlled by automated test software" bar, both signals
+  // Google's reCAPTCHA can weigh. Drop it unless the config asks to keep it.
+  if (!browserConfig.keepEnableAutomation) baseOptions.ignoreDefaultArgs = ['--enable-automation'];
   if (browserConfig.timezoneId) baseOptions.timezoneId = browserConfig.timezoneId;
   if (browserConfig.userAgent) baseOptions.userAgent = browserConfig.userAgent;
 

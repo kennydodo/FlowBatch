@@ -42,6 +42,7 @@ export async function generateCommand({ flags, context, positionals }) {
     pauseOnError: flags['pause-on-error'] === true,
     dumpOnError: flags['dump-on-error'] !== false,
     cooldownSeconds: flags.cooldown === undefined ? undefined : intFlag(flags, 'cooldown', 180),
+    delayBetweenItemsMs: flags.delay === undefined ? undefined : intFlag(flags, 'delay', 0) * 1000,
     maxCooldowns: flags['max-cooldowns'] === undefined ? undefined : intFlag(flags, 'max-cooldowns', 10),
     maxConsecutiveFailures:
       flags['max-consecutive-failures'] === undefined
