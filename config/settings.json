@@ -37,7 +37,7 @@
     "reapplySettingsAfterReset": true,
     "retries": 1,
     "retryDelayMs": 5000,
-    "delayBetweenItemsMs": 5000,
+    "delayBetweenItemsMs": 1500,
     "pauseOnError": false
   },
 
