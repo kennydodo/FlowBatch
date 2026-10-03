@@ -148,7 +148,7 @@ export async function runJob({ job, driver, state, settings, options }) {
   let consecutiveFailures = 0;
   const globalRetries = Number(gen.retries ?? 0);
   const retryDelayMs = Number(gen.retryDelayMs ?? 5000);
-  const delayBetweenItemsMs = Number(gen.delayBetweenItemsMs ?? 0);
+  const delayBetweenItemsMs = Number(options.delayBetweenItemsMs ?? gen.delayBetweenItemsMs ?? 0);
   const resetMode = gen.resetBetweenItems ?? 'reload';
   const reapply = gen.reapplySettingsAfterReset !== false;
 

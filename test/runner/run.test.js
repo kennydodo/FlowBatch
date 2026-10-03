@@ -161,6 +161,28 @@ test('multiple results get numeric suffixes', async (t) => {
   assert.deepEqual(fs.readdirSync(outputsDir).sort(), ['shot-1.jpg', 'shot-2.jpg']);
 });
 
+test('the --delay option replaces the configured gap between items', async (t) => {
+  const makeOk = () =>
+    makeDriver({
+      waitForNewAssets: async () => ({ added: [{ key: 'k1', index: 0 }], selector: 'grid' }),
+      fetchAssetBytes: async () => JPG,
+    });
+  const timed = async (settings, options) => {
+    const start = Date.now();
+    await runFixture(t, { items: [item('A1'), item('A2')], driver: makeOk(), settings, options });
+    return Date.now() - start;
+  };
+  const configured = await timed(makeSettings({ generation: { delayBetweenItemsMs: 0 } }), {});
+  const overridden = await timed(makeSettings({ generation: { delayBetweenItemsMs: 0 } }), {
+    delayBetweenItemsMs: 150,
+  });
+  const beaten = await timed(makeSettings({ generation: { delayBetweenItemsMs: 400 } }), {
+    delayBetweenItemsMs: 0,
+  });
+  assert.ok(overridden >= configured + 250, `two items, 150 ms each: ${overridden} vs ${configured}`);
+  assert.ok(beaten < 300, `the option 0 wins over the 400 ms setting: ${beaten}`);
+});
+
 test('references are attached with the configured mode', async (t) => {
   const driver = makeDriver({
     waitForNewAssets: async () => ({ added: [{ key: 'k', index: 0 }], selector: 'grid' }),
